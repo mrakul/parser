@@ -4,26 +4,36 @@
 //     - Under the current dir, file utils.rs (this is the case where is the code now);
 //     - Under the current dir, but deeper: utils/mod.rs.
 
+// Стандартные модули
+use time::OffsetDateTime;
+
 // Подключение верхнеуровневого модуля
 mod basics;
 
-use basics::config::DEFAULT_COURSE_NAME;
+// Конфигурация
+use basics::config::{DEFAULT_COURSE_NAME, CourseConfig, CourseCohort};
 
+// Типы, переменные 
 use basics::types::greet;
-// use basics::types::variables;
+use basics::types::variables;
+
+// Функции
 use basics::functions::print_coordinates;
 use basics::functions::is_divisible;
 use basics::functions::celsius_to_fahrenheit;
-use basics::ownership::string_ownership;
-
-
-// Условные операторы
-use basics::conditionals::if_let_example_1;
 
 // Циклы
 use basics::loops::{loop_example, matrix_search, show_progress};
 
-use time::OffsetDateTime;
+// Владение, заимствование
+use basics::ownership::string_ownership;
+use basics::borrowing::borrowing_example;
+
+// Условные операторы
+use basics::conditionals::if_let_example_1;
+
+use crate::basics::borrowing::reference_lifetime;
+
 
 fn main() {
 
@@ -52,6 +62,21 @@ fn main() {
     
     /*** Владение ***/
     string_ownership();
+    borrowing_example();
+    reference_lifetime();
+
+    // Создание экземпляра структуры
+    // 1. Без конструктора с передачей значения
+    // let config = CourseConfig {
+    //     cohort: CourseCohort::Start,
+    // };
+
+    // 2. С конструктором с передачей значения
+    let mut config = CourseConfig::new(CourseCohort::Start);
+    println!("Длительность вашей когорты: {}", config.get_duration());
+
+    config.upgrade_cohort();
+    println!("Длительность вашей когорты: {}", config.get_duration());
 
 
 }

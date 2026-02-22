@@ -68,6 +68,7 @@ fn if_let_example_2() {
     // Пример использования со структурами
     let new_user = User {
         name: "Алиса".to_string(),
+        // (!) Значение присваивается с помощью (:)
         role: UserRole::Admin,
         active: true,
     };
