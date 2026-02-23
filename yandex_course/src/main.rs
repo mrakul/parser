@@ -38,6 +38,9 @@ use basics::borrowing::reference_lifetime;
 // Generics, traits
 use basics::generics_traits;
 
+// Строки
+use basics::output::{*};
+
 
 fn main() {
 
@@ -82,10 +85,21 @@ fn main() {
     config.upgrade_cohort();
     println!("Длительность вашей когорты: {}", config.get_duration());
 
-    /* Generic'и и trait'ы */
+    /*** Generic'и и trait'ы ***/
     let field: generics_traits::FieldDerived<i32> = generics_traits::FieldDerived::default();
 
     // false (значение по умолчанию для bool)
     println!("{}", field.is_valid); 
+
+    /*** Строки и форматирование ***/
+    strings_format();
+    print_student();
+    specificators();
+
+    // Вывод файла и номера строки, где выполняется
+    let x = dbg!(5 * 4);
+
+    // Вывод с реализацией трейта Display для конфигурации
+    println!("{}", config);
 
 } 

@@ -1,3 +1,5 @@
+use std::fmt;
+
 pub const DEFAULT_COURSE_NAME: &str = "Rust для действующих разработчиков";
 
 #[derive(Default)]
@@ -64,5 +66,26 @@ impl CourseConfig {
                 true
             }
         }
+    }
+}
+
+
+// Пример с Display:
+// 1. Реализация для CourseCohort
+impl fmt::Display for CourseCohort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            CourseCohort::Start => "Переход с C/С++/Python",
+            CourseCohort::Base => "Базовый курс",
+            CourseCohort::Blockchain => "Погружение в блокчейн",
+        };
+        write!(f, "{}", name)
+    }
+}
+
+// 2. Реализация для CourseConfig
+impl fmt::Display for CourseConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Конфигурация: \"{DEFAULT_COURSE_NAME}\", когорта: \"{}\"", self.cohort)
     }
 }
