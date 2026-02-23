@@ -41,65 +41,77 @@ use basics::generics_traits;
 // Строки
 use basics::output::{*};
 
+// Замыкания (closures) и fn-трейты
+use basics::closures::{*};
 
 fn main() {
 
-    // Примеры вывода
-    greet();
-    println!("Сегодня: {}", OffsetDateTime::now_utc().date());
-    println!("Я прохожу курс: {}!", DEFAULT_COURSE_NAME);
+    // // Примеры вывода
+    // greet();
+    // println!("Сегодня: {}", OffsetDateTime::now_utc().date());
+    // println!("Я прохожу курс: {}!", DEFAULT_COURSE_NAME);
 
-    // Вызов примеров с функциями
+    // // Вызов примеров с функциями
 
-    /*** Типы, переменные ***/
-    // variables();
+    // /*** Типы, переменные ***/
+    // // variables();
     
-    /*** Функции ***/
-    print_coordinates(3, 4);
-    let _is_exact_division = is_divisible(10, 3);
-    let _temperature = celsius_to_fahrenheit(23.0);
+    // /*** Функции ***/
+    // print_coordinates(3, 4);
+    // let _is_exact_division = is_divisible(10, 3);
+    // let _temperature = celsius_to_fahrenheit(23.0);
 
-    /*** Условные операторы ***/
-    if_let_example_1();
+    // /*** Условные операторы ***/
+    // if_let_example_1();
     
-    /*** Циклы ***/
-    // loop_example();
-    // matrix_search();
-    show_progress(5, 15);
+    // /*** Циклы ***/
+    // // loop_example();
+    // // matrix_search();
+    // show_progress(5, 15);
     
-    /*** Владение ***/
-    string_ownership();
-    borrowing_example();
-    reference_lifetime();
+    // /*** Владение ***/
+    // string_ownership();
+    // borrowing_example();
+    // reference_lifetime();
 
-    // Создание экземпляра структуры
-    // 1. Без конструктора с передачей значения
-    // let config = CourseConfig {
-    //     cohort: CourseCohort::Start,
-    // };
+    // // Создание экземпляра структуры
+    // // 1. Без конструктора с передачей значения
+    // // let config = CourseConfig {
+    // //     cohort: CourseCohort::Start,
+    // // };
 
-    // 2. С конструктором с передачей значения
-    let mut config = CourseConfig::new(CourseCohort::Start);
-    println!("Длительность вашей когорты: {}", config.get_duration());
+    // // 2. С конструктором с передачей значения
+    // let mut config = CourseConfig::new(CourseCohort::Start);
+    // println!("Длительность вашей когорты: {}", config.get_duration());
 
-    config.upgrade_cohort();
-    println!("Длительность вашей когорты: {}", config.get_duration());
+    // config.upgrade_cohort();
+    // println!("Длительность вашей когорты: {}", config.get_duration());
 
-    /*** Generic'и и trait'ы ***/
-    let field: generics_traits::FieldDerived<i32> = generics_traits::FieldDerived::default();
+    // /*** Generic'и и trait'ы ***/
+    // let field: generics_traits::FieldDerived<i32> = generics_traits::FieldDerived::default();
 
-    // false (значение по умолчанию для bool)
-    println!("{}", field.is_valid); 
+    // // false (значение по умолчанию для bool)
+    // println!("{}", field.is_valid); 
 
-    /*** Строки и форматирование ***/
-    strings_format();
-    print_student();
-    specificators();
+    // /*** Строки и форматирование ***/
+    // strings_format();
+    // print_student();
+    // specificators();
 
-    // Вывод файла и номера строки, где выполняется
-    let x = dbg!(5 * 4);
+    // // Вывод файла и номера строки, где выполняется
+    // let x = dbg!(5 * 4);
 
-    // Вывод с реализацией трейта Display для конфигурации
-    println!("{}", config);
+    // // Вывод с реализацией трейта Display для конфигурации
+    // println!("{}", config);
+
+    /*** Замыкания (closures) и fn-трейты ***/
+    // closure_example();
+    // closure_example_2();
+    // closure_sum();
+    // fn_traits_example();
+    // borrow_move_closure();
+    // calculate_differently();
+    // generic_functor();
+    adders_creation();
 
 } 

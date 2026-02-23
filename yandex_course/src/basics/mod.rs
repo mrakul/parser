@@ -8,3 +8,4 @@ pub mod ownership;
 pub mod borrowing;
 pub mod generics_traits;
 pub mod output;
+pub mod closures;
