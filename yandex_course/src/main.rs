@@ -32,7 +32,11 @@ use basics::borrowing::borrowing_example;
 // Условные операторы
 use basics::conditionals::if_let_example_1;
 
-use crate::basics::borrowing::reference_lifetime;
+// Borrowing
+use basics::borrowing::reference_lifetime;
+
+// Generics, traits
+use basics::generics_traits;
 
 
 fn main() {
@@ -78,5 +82,10 @@ fn main() {
     config.upgrade_cohort();
     println!("Длительность вашей когорты: {}", config.get_duration());
 
+    /* Generic'и и trait'ы */
+    let field: generics_traits::FieldDerived<i32> = generics_traits::FieldDerived::default();
 
-}
+    // false (значение по умолчанию для bool)
+    println!("{}", field.is_valid); 
+
+} 

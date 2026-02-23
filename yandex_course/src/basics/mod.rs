@@ -6,3 +6,4 @@ pub mod conditionals;
 pub mod loops;
 pub mod ownership;
 pub mod borrowing;
+pub mod generics_traits;

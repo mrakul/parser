@@ -1,10 +1,21 @@
 pub const DEFAULT_COURSE_NAME: &str = "Rust для действующих разработчиков";
 
+#[derive(Default)]
 pub enum CourseCohort {
+     #[default]
     Start,
     Base,
     Blockchain,
 }
+
+// (!) Один из двух вариантов для Default: или как вверху, или реализация внизу функции default()
+
+// impl Default for CourseCohort {
+//     fn default() -> Self {
+//         // Когорта по умолчанию
+//         CourseCohort::Start
+//     }
+// } 
 
 pub struct CourseConfig {
     pub cohort: CourseCohort,
