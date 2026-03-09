@@ -7,11 +7,26 @@ use std::fs;
 // Задаём тип (аналог using C++)
 pub type Name = String;
 pub type Balance = i64;
+// Сейчас сделали struct Balance(i64) с методами
+
+// Обернём баланс в новый тип, чтобы можно было реализовывать метод
+// (не для целого числа ведь метод добавлять, верно? :) )
+// и запретим балансу опускаться ниже нуля
+// pubstruct Balance(i64);
 
 // Хранилище
 pub struct Storage {
    accounts: HashMap<Name, Balance>
 }
+
+
+#[derive(Debug, Clone)]
+pub enum Operation {
+    Deposit(u32),
+    Withdraw(u32),
+    CloseAccount(String)
+} 
+
 
 impl Storage {
     // Конструктор, возвращем структуру Storage (by value, Move-семантика)
@@ -38,12 +53,12 @@ impl Storage {
     }
 
     // Удалить пользователя: Option<i64> => "забираем" данные (Copy для примитивов)
-    pub fn remove_user(&mut self, user_to_remove: &Name) -> Option<i64> {
+    pub fn remove_user(&mut self, user_to_remove: &Name) -> Option<Balance> {
         self.accounts.remove(user_to_remove)
     }
 
     // Получить баланс пользователя: Option<&i64> => читаем по immutable-ссылке
-    pub fn get_balance(&self, user_to_read: &Name) -> Option<&i64> {
+    pub fn get_balance(&self, user_to_read: &Name) -> Option<&Balance> {
         self.accounts.get(user_to_read)
         
         // Можно так: тогда в Option<i64> и в тестах без ссылок, примитивы копируются.
@@ -52,7 +67,7 @@ impl Storage {
     }
 
     // Положить деньги, здесь можем передать user как ссылку
-    pub fn deposit(&mut self, user: &Name, money_to_add: Balance) -> Result<(), &str> {
+    pub fn deposit(&mut self, user: &Name, money_to_add: i64) -> Result<(), &str> {
         // Деструктуризация в Some<&mut i64>, возвращаем как &str - указатель на литерал (можно сделать String как Result)
         if let Some(balance) = self.accounts.get_mut(user.as_str()) {
             // Добавили с разымёныванием
@@ -154,6 +169,37 @@ impl Storage {
 
         fs::write(file_path, data).expect("Не удалось записать файл");
     }
+
+    // pub pub fn apply_operations(&mut self, user: &Name, operations: &Vec<Operation>) -> Vec<Operation> {
+        
+    //     // Пустой вектор
+    //     pub let mut bad_operations: Vec<Operation> = vec![];
+
+    //     for op in operations {
+    //         match op {
+    //             pub Operation::Deposit(value) => {
+    //                 if let Err(errorMsg) = self.deposit(user, *value as i64) {
+    //                     println!("{}", errorMsg);
+    //                     bad_operations.push(op.clone());
+    //                 }
+    //             },
+    //             pub Operation::Withdraw(value) => {
+    //                 if let Err(errorMsg) = self.withdraw(user, *value as i64) {
+    //                     println!("{}", errorMsg);
+    //                     bad_operations.push(op.clone());
+    //                 }
+    //             },
+    //             pub Operation::CloseAccount(user) => {
+    //                 if let None = self.remove_user(user) {
+    //                     println!("Пользователь не найден {}", user);
+    //                     bad_operations.push(op.clone());
+    //                 }
+    //             }
+    //         }
+    //     }
+
+        // bad_operations
+    // }
 
 }
 
@@ -386,3 +432,31 @@ mod tests {
     }
 
 }
+
+
+// impl Balance {
+//     // Можно пойти ещё дальше и в качестве аргумента принимать любой тип,
+//     // который может итерироваться по OpKind, с помощью дженерика:
+//     // fn process<'a>(&mut self, impl IntoIterator<Item=&'a OpKind>) -> Vec<&'a OpKind>
+//     // Пробуйте, дерзайте!
+//     fn process<'a>(&mut self, ops: &[&'a OpKind]) -> Vec<&'a OpKind> {
+//         let mut remaining = ops.into_iter();
+//         let mut bad_ops = Vec::new();
+//         for op in &mut remaining {
+//             match op {
+//                 OpKind::Deposit(value) => {
+//                     self.0 += *value as u64;
+//                 },
+//                 OpKind::Withdraw(value) if self.0 > *value as u64 => {
+//                     self.0 -= *value as u64;
+//                 },
+//                 other @ _ => {
+//                     bad_ops.push(*other);
+//                     break;
+//                 },
+//             }
+//         }
+//         bad_ops.extend(remaining);
+//         bad_ops
+//     }
+// }

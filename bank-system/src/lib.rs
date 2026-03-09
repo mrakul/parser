@@ -11,6 +11,9 @@
 
 pub mod storage;
 
+// Так можно не указывать storage
 pub use storage::Storage;
 pub use storage::Name;
 pub use storage::Balance;
+pub use storage::Operation;
+pub use storage::Operation::{Deposit, Withdraw, CloseAccount};
