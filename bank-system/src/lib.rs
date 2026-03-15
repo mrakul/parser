@@ -9,11 +9,15 @@
 // pub(super) — доступно только в родительском модуле. Это как «передать наружу ровно на один уровень выше».
 // pub(in some::path) — доступно только в указанном модуле и его потомках. Максимально тонкая настройка области видимости.
 
+// pub mod 
 pub mod storage;
+pub mod balance;
+pub mod operation;
+pub mod transaction;
 
 // Так можно не указывать storage
 pub use storage::Storage;
 pub use storage::Name;
-pub use storage::Balance;
-pub use storage::Operation;
-pub use storage::Operation::{Deposit, Withdraw, CloseAccount};
+pub use balance::Balance;
+pub use operation::Operation;
+pub use operation::Operation::{Deposit, Withdraw, CloseAccount};

@@ -1,4 +1,7 @@
-use bank_system::{Operation::{Deposit, Withdraw}, storage::*, };
+use bank_system::{storage::*, };
+use bank_system::operation::Operation;
+use bank_system::operation::Operation::{*};
+use bank_system::balance::Balance;
 
 fn check_storage_best_ratio(storage: &Storage) {
     if let Some(best_ratio_name_value) = storage.find_best() {

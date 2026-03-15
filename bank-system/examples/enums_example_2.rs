@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Add};
+use std::{collections::HashMap};
 
 // наследоваться от Sized нужно, чтобы вернуть Self,
 // иначе говоря - "чтобы было что разместить на стеке"

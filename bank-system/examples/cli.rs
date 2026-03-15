@@ -21,7 +21,10 @@ fn main() {
     // Загружаем текущее состояние банка из CSV-файла
     // Здесь демонстрация использования BufRead в методе load_data()
     // Файл читается построчно, и каждая строка преобразуется в (Name, Balance)
-    let mut storage = Storage::load_file_to_storage("./aux/balance.csv");
+
+    let file_path = String::from("../aux/balance.csv");
+
+    let mut storage = Storage::load_file_to_storage(file_path.as_str());
     
     // Без чтения из файла - создание нового Storage и наполнение:
     // let mut storage = Storage::new();
@@ -65,7 +68,7 @@ fn main() {
                 Ok(_) => {
                     println!("Пополнено: {} на {}", user, amount);
                     // После изменения баланса сохраняем новое состояние в CSV (полностью o_O)
-                    storage.save_storage_to_file("./aux/balance.csv");
+                    storage.save_storage_to_file(file_path.as_str());
                 },
                 Err(e) => println!("Ошибка: {}", e),
             }
@@ -85,7 +88,7 @@ fn main() {
                 Ok(_) => {
                     println!("Снято: {} на {}", user, amount);
                     // После изменения баланса сохраняем новое состояние в CSV (полностью o_O)
-                    storage.save_storage_to_file("./aux/balance.csv");
+                    storage.save_storage_to_file(file_path.as_str());
                 },
                 Err(e) => println!("Ошибка: {}", e),
             }

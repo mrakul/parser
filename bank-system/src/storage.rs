@@ -4,37 +4,17 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::fs;
 
+use crate::balance::Balance;
+use crate::operation::Operation;
+
 // Задаём тип (аналог using C++)
 pub type Name = String;
 // pub type Balance = i64;
-// Сейчас сделали struct Balance(i6 4) с методами
-
-// Обернём баланс в новый тип, чтобы можно было реализовывать метод
-// (не для целого числа ведь метод добавлять, верно? :) )
-// и запретим балансу опускаться ниже нуля
-
-// #[derive(Debug, PartialEq, Clone)]
-// pub struct Balance(i64);
- 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Balance {
-    value: i64,
-    applied_operations: Vec<Operation>,
-}
 
 // Хранилище
 pub struct Storage {
    accounts: HashMap<Name, Balance>
 }
-
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Operation {
-    Deposit(u64),
-    Withdraw(u64),
-    CloseAccount
-} 
-
 
 impl Storage {
     // Конструктор, возвращем структуру Storage (by value, Move-семантика)
@@ -108,12 +88,21 @@ impl Storage {
         //  self.accounts.get(user_to_read).copied()
     }
 
+    pub fn get_accounts(&self) -> &HashMap<String, Balance> {
+        &self.accounts
+    }
+
+    pub fn get_accounts_mut(&mut self) -> &mut HashMap<String, Balance> {
+        &mut self.accounts
+    }
+
+
     // Положить деньги, здесь можем передать user как ссылку
     pub fn deposit(&mut self, user: &Name, money_to_add: i64) -> Result<(), &str> {
         // Деструктуризация в Some<&mut i64>, возвращаем как &str - указатель на литерал (можно сделать String как Result)
         if let Some(balance) = self.accounts.get_mut(user.as_str()) {
             // Добавили с разымёныванием
-            balance.value += money_to_add;
+            balance.set_value(balance.get_value() + money_to_add);
             Ok(())
         }
         else {
@@ -124,12 +113,12 @@ impl Storage {
     pub fn withdraw(&mut self, user: &Name, money_to_withdraw: i64) -> Result<(), &str> {
         // Деструктуризация в Some<&mut i64>
         if let Some(balance) = self.accounts.get_mut(user) {
-            if balance.value - money_to_withdraw < 0 {
+            if balance.get_value() - money_to_withdraw < 0 {
                 Err("Недостаточно средств")
             }
             else {
                 // Изымаем
-                balance.value -= money_to_withdraw;
+                balance.set_value(balance.get_value() - money_to_withdraw);
                 Ok(())                
             }
         }
@@ -198,7 +187,7 @@ impl Storage {
         // Бежим по вектору
         for (name, balance) in self.get_all() {
             // Разделяем newline'ом записи, всё по классике
-            data.push_str(&format!("{},{}\n", name, balance.value));
+            data.push_str(&format!("{},{}\n", name, balance.get_value()));
         }
 
         // Записываем в файл
@@ -228,7 +217,7 @@ impl Storage {
             let mut sum_deposit_value = 0;
             
             // Разумеется, можно за один проход проверить обе операции
-            for cur_operation in &cur_balance.applied_operations {
+            for cur_operation in cur_balance.get_applied_operations_ref() {
                 match cur_operation {
                     &Operation::Deposit(value) => sum_deposit_value += value as i64,
                     _ => (),
@@ -236,8 +225,8 @@ impl Storage {
             }
 
             // Проход с помощью итераторов, тоже по ссылкам
-            let sum_withdraw_value: u64
-                = cur_balance.applied_operations.iter()
+            let sum_withdraw_value: u64 
+                    = cur_balance.get_applied_operations_ref().iter()
                 // Создаётся итератор, в котором отсеиваются только Withdraw
                 // Some(*value) возвращается замыканием, НО filter_map() unwrap()'ит автоматически
                 .filter_map(|op| match op {Operation::Withdraw(value) => Some(*value as u64), _ => None})
@@ -287,67 +276,6 @@ impl Storage {
 
 }
 
-impl Balance {
-    // Предыдущий конструктор в tuple-like struct
-    // pub fn new(value: i64) -> Self {
-    //     Self(value)
-    // }
-    pub fn new() -> Self {
-            Balance{value: 0, applied_operations: Vec::new()}
-    }
-
-    pub fn new_value_and_operations(value_to_set: i64, operations: Vec<Operation>) -> Self {
-        Balance{value: value_to_set, 
-                applied_operations: operations}
-    }
-
-    // Или смотреть имплементацию From ниже
-    pub fn new_from_i64_value(value_to_set: i64) -> Self {
-            Balance{value: value_to_set, applied_operations: Vec::new()}
-    }
-
-    // Опционально: можно пойти ещё дальше и в качестве аргумента принимать любой тип,
-    // который может итерироваться по Operation, с помощью дженерика:
-    // fn process<'a>(&mut self, impl IntoIterator<Item=&'a Operation>) -> Vec<&'a Operation>
-    
-    // Реализация из курса
-    // fn process<'a>(&mut self, ops: &[&'a Operation]) -> Vec<&'a Operation> {
-    pub fn process_operations(&mut self, operations: Vec<Operation>) -> Vec<Operation> {
-        
-        // Владение вектором в начале операции, передаём владение в итератор remaining
-        let mut remaining_operations = operations.into_iter();
-        let mut bad_operations = Vec::new();
-
-        // Необходимо взять итератор по ссылке, чтобы он был доступен в конце для сохранения оставшихся
-        for op in remaining_operations.by_ref() {
-            match op {
-                Operation::Deposit(value) => {
-                    self.value += value as i64;
-                },
-                Operation::Withdraw(value) if self.value >= value as i64 => {
-                    self.value -= value as i64;
-                },
-                other @ _ => {
-                    bad_operations.push(other);
-                    // Выходим сразу после первой плохой операции (итератор сразу после плохой операции)
-                    break;
-                },
-            }
-        }
-
-        // В extend() передаём именно итератор, оставшиеся операции
-        bad_operations.extend(remaining_operations);
-        bad_operations
-    }
-}
-
-// (!) Создаётся новый одновременно
-impl From<i64> for Balance {
-    fn from(value: i64) -> Self {
-        Balance{value, applied_operations: Vec::new() }
-    }
-}
-
 /*** Реализация Balance Manager Trait'а ***/
 
 #[derive(Debug)]
@@ -364,7 +292,7 @@ pub trait BalanceManager {
 impl BalanceManager for Storage {
     fn deposit_by_manager(&mut self, name: &Name, amount: i64) -> Result<(), BalanceManagerError> {
         if let Some(balance) = self.accounts.get_mut(name) {
-            balance.value += amount;
+            balance.set_value(balance.get_value() + amount);
             Ok(())
         } else {
             // "Пользователь не найден".into()
@@ -374,12 +302,12 @@ impl BalanceManager for Storage {
 
     fn withdraw_by_manager(&mut self, name: &Name, amount: i64) -> Result<(), BalanceManagerError> {
         if let Some(balance) = self.accounts.get_mut(name) {
-            if balance.value >= amount {
-                balance.value -= amount;
+            if balance.get_value() >= amount {
+                balance.set_value(balance.get_value() - amount);
                 Ok(())
             } else {
                 // "Недостаточно средств".into()
-                Err(BalanceManagerError::NotEnoughMoney{required: amount, available: balance.value})
+                Err(BalanceManagerError::NotEnoughMoney{required: amount, available: balance.get_value()})
             }
         } else {
             // "Пользователь не найден".into()
@@ -388,10 +316,7 @@ impl BalanceManager for Storage {
     }
 }
 
-
-
-
-/*** Секция тестов ***/
+/*** Секция тестовb для Storage ***/
 
 // Child-модуль
 #[cfg(test)]
@@ -604,7 +529,7 @@ mod tests {
             let mut writer = BufWriter::new(&mut cursor);
             // Получение всех записей в векторе запись в буфер как в файл
             for (name, balance) in storage.get_all() {
-                writeln!(writer, "{},{}", name, balance.value).unwrap();
+                writeln!(writer, "{},{}", name, balance.get_value()).unwrap();
             }
             
             writer.flush().unwrap();

@@ -1,4 +1,5 @@
-use bank_system::storage::{*};
+use bank_system::operation::Operation;
+use bank_system::balance::Balance;
 
 fn main () {
     let operations_to_apply = vec![Operation::Deposit(100), Operation::Withdraw(150), Operation::CloseAccount];
