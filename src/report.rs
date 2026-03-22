@@ -1,10 +1,11 @@
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use std::process::id;
-// use std::path::Path;
+use std::fmt::Formatter;
+use std::fmt;
+use std::path::Path;
 // use std::fs::File;
 // use std::fs;
 
+use crate::report::fmt::Display;
 use crate::csv_format::CsvFormatIO;
 use crate::text_format::TextFormatIO;
 use crate::bin_format::BinFormatIO;
@@ -21,6 +22,18 @@ enum TransactionType {
     Unknown
 }
 
+// Для вывода в виде строки
+impl Display for TransactionType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TransactionType::Deposit => write!(f, "DEPOSIT"),
+            TransactionType::Withdrawal=> write!(f, "WITHDRAWAL"),
+            TransactionType::Transfer=> write!(f, "TRANSFER"),
+            TransactionType::Unknown => write!(f, "UNKNOWN"),
+        }
+    }
+}
+
 // Статус транзакции
 #[derive(Debug)]
 enum TransactionStatus {
@@ -28,6 +41,18 @@ enum TransactionStatus {
     Failure,
     Pending,
     Unknown,
+}
+
+// Для вывода в виде строки
+impl Display for TransactionStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TransactionStatus::Success => write!(f, "SUCCESS"),
+            TransactionStatus::Failure => write!(f, "FAILURE"),
+            TransactionStatus::Pending => write!(f, "PENDING"),
+            TransactionStatus::Unknown => write!(f, "UNKONWN"),
+        }
+    }
 }
 
 // Структура для чтения/записи транзакции
@@ -189,22 +214,19 @@ impl Report {
 }
 
 impl CsvFormatIO<Report> for Report {
-    fn new_from_csv_file<R: std::io::Read>(reader: &mut R) -> Result<Report, String> {
+    fn new_from_csv_file<R: std::io::Read>(reader: R) -> Result<Report, String> {
         // Можно весь прочитать
         // match reader.read_to_string(&mut buffer) {
 
-        // Оборачиваем файл в BufReader
-        // BufReader читает данные блоками и хранит их в буфере,
-        // поэтому построчное чтение (lines()) работает быстрее, чем читать по байту
-
-        // Читаем файл построчно
-        // Каждая строка — это Result<String>, поэтому делаем if let Ok
         let buf_reader = BufReader::new(reader);
+        // Создаём итератор для пропуска header'а - первой строки 
+        let mut lines = buf_reader.lines();
+        let _header = lines.next();
 
         // Создаём новый Report и читаем файл построчно
         let mut new_report = Self::new();
 
-        for cur_line in buf_reader.lines() {
+        for cur_line in lines {
             match cur_line {
                 Ok(ok_line) => {
                     println!("Прочитанная строка: {}", ok_line);
@@ -216,7 +238,7 @@ impl CsvFormatIO<Report> for Report {
 
                         // Получем поля из вектора:
                         // 1. Transaction ID
-                        let mut tx_id = Report::parse_u64_with_warning(columns[0], 0);
+                        let tx_id = Report::parse_u64_with_warning(columns[0], 0);
 
                         // 2. Transaction Type: сравниваем с &str
                         let tx_type = match columns[1] {
@@ -265,8 +287,39 @@ impl CsvFormatIO<Report> for Report {
     }
 
     fn write_to_csv_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), String> {
-        todo!()
+        // Собираем все данные в текстовом виде в одну строку с newline'ами
+       let mut out_data = String::new();
+
+        // Бежим по вектору (по ссылке)
+        for cur_tx in &self.transactions {
+            // Разделяем newline'ом записи, всё по классике
+            out_data.push_str(&format!("{},{},{},{},{},{},{},{}\n", cur_tx.tx_id,
+                                                                            cur_tx.tx_type,
+                                                                            cur_tx.from_user_id,
+                                                                            cur_tx.to_user_id,
+                                                                            cur_tx.amount,
+                                                                            cur_tx.timestamp,
+                                                                            cur_tx.status,
+                                                                            cur_tx.description));
+        }
+
+        // Не используем BufWriter, потому что сразу пишем всю строку целиком.
+        // Создаём родительские директории
+        // let file_path = Path::new("aux/")
+        // if let Some(parent) = Path::new(file_path).parent() {
+        //     fs::create_dir_all(parent).unwrap();
+        // }
+        
+        if let Err(error) = writer.write_all(out_data.as_bytes()) {
+            // .map_err(|e| FormatError::IoError(e.to_string()))?;
+            return Err(error.to_string());
+        }
+
+        Ok(())
     }
+
+
+
 }
 
 impl BinFormatIO<Report> for Report {
