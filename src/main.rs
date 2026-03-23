@@ -1,6 +1,7 @@
 use parser::report::Report;
 use parser::csv_format::CsvFormatIO;
 use parser::bin_format::BinFormatIO;
+use parser::text_format::TextFormatIO;
 use std::fs::File;
 use std::path::Path;
 use std::io::{BufWriter, Cursor};
@@ -62,10 +63,10 @@ fn main() {
 
     /*** Секция бинарного формата ***/
     // 1. Тест чтения из CSV
-    let file_to_read = Path::new("aux/records_example_2.bin");
+    let file_path_to_read = Path::new("aux/records_example_2.bin");
 
     // Открываем файл
-    let mut file_to_read = File::open(file_to_read)
+    let mut file_to_read = File::open(file_path_to_read)
         .unwrap_or_else(|e| {
             eprintln!("Не удалось открыть файл: {}", e);
             std::process::exit(1);
@@ -79,6 +80,7 @@ fn main() {
     
     println!("Отчёт: {:?} размер {} ", report, report.get_transactions().len());
 
+    // 2. Запись в CSV
     let bin_file_to_write_path = Path::new("aux/output.bin");
 
     let mut bin_file_to_write = File::create(bin_file_to_write_path)
@@ -87,11 +89,46 @@ fn main() {
             std::process::exit(1);
         });
 
-    // let mut bin_buf_writer = BufWriter::new(bin_file_to_write);
+    // Оборачиваем для буферизированного вывода
+    let mut bin_buf_writer = BufWriter::new(bin_file_to_write);
     
-    match report.write_to_bin_file(&mut bin_file_to_write) {
-            Ok(()) => println!("Записано в файл: {:?}", csv_file_to_write_path),
-            Err(error) => println!("Ошибка записи в файл {:?}: {}", csv_file_to_write_path, error),
+    match report.write_to_bin_file(&mut bin_buf_writer) {
+            Ok(()) => println!("Записано в файл: {:?}", bin_file_to_write_path),
+            Err(error) => println!("Ошибка записи в файл {:?}: {}", bin_file_to_write_path, error),
+    }
+
+    /*** Секция текстового формата ***/
+    let file_path_to_read = Path::new("aux/records_example.txt");
+
+    let mut file_to_read = File::open(file_path_to_read)
+        .unwrap_or_else(|e| {
+            eprintln!("Не удалось открыть файл: {}", e);
+            std::process::exit(1);
+        });
+
+    let mut report = Report::new_from_text_file(&mut file_to_read)
+        .unwrap_or_else(|e| {
+            eprintln!("Текстовый файл не прочитан: {}", e);
+            std::process::exit(1);
+        });
+    
+        println!("Отчёт: {:?} размер {} ", report, report.get_transactions().len());
+
+        // 2. Запись в текстовом формате
+        let txt_file_to_write_path = Path::new("aux/output.txt");
+
+        let mut txt_file_to_write = File::create(txt_file_to_write_path)
+            .unwrap_or_else(|e| {
+                eprintln!("Не удалось создать файл: {}", e);
+                std::process::exit(1);
+            });
+
+        // Оборачиваем для буферизированного вывода
+        let mut txt_buf_writer = BufWriter::new(txt_file_to_write);
+        
+        match report.write_to_text_file(&mut txt_buf_writer) {
+                Ok(()) => println!("Записано в файл: {:?}", txt_file_to_write_path),
+                Err(error) => println!("Ошибка записи в файл {:?}: {}", txt_file_to_write_path, error),
         }
 
 }

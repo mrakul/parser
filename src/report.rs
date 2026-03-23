@@ -1,7 +1,8 @@
 use std::io::{BufRead, BufReader};
 use std::mem;
-use byteorder::{ByteOrder, BigEndian, LittleEndian};
+use byteorder::{ByteOrder, BigEndian};
 use std::io::ErrorKind;
+use std::collections::HashMap;
 
 use crate::transaction::{BinTransactionHeader, BinTransactionBodyFixed, Transaction, TransactionStatus, TransactionType};
 use crate::csv_format::CsvFormatIO;
@@ -179,7 +180,90 @@ impl Report {
 
     }
 
+    fn tx_from_tx_hashmap(tx_hashmap: &HashMap<String, String>) -> Result<Transaction, String> {
+
+        let tx_id = tx_hashmap.get("TX_ID")
+            .ok_or_else(|| "Отсутствует поле TX_ID в записи".to_string())
+            .and_then(|s| s.parse::<u64>().map_err(|e| format!("Не распарсился TX_ID: {}", e)))?;
+        
+        let tx_type = tx_hashmap.get("TX_TYPE")
+            .ok_or_else(|| "Отсутствует поле TX_TYPE в записи".to_string())
+            .and_then(|s: &String| Self::parse_transaction_type(s))?;
+        
+        let from_user_id = tx_hashmap.get("FROM_USER_ID")
+            .ok_or_else(|| "Отсутствует поле FROM_USER_ID в записи".to_string())
+            .and_then(|s| s.parse::<u64>().map_err(|e| format!("Не распарсился FROM_USER_ID: {}", e)))?;
+        
+        let to_user_id = tx_hashmap.get("TO_USER_ID")
+            .ok_or_else(|| "Отсутствует поле TO_USER_ID в записи".to_string())
+            .and_then(|s| s.parse::<u64>().map_err(|e| format!("Не распарсился TO_USER_ID: {}", e)))?;
+        
+        let amount = tx_hashmap.get("AMOUNT")
+            .ok_or_else(|| "Отсутствует поле AMOUNT в записи".to_string())
+            .and_then(|s| s.parse::<u64>().map_err(|e| format!("Не распарсился AMOUNT: {}", e)))?;
+        
+        let timestamp = tx_hashmap.get("TIMESTAMP")
+            .ok_or_else(|| "Отсутствует поле TIMESTAMP в записи".to_string())
+            .and_then(|s| s.parse::<u64>().map_err(|e| format!("Не распарсился TIMESTAMP: {}", e)))?;
+        
+        let status = tx_hashmap.get("STATUS")
+            .ok_or_else(|| "Отсутствует поле STATUS в записи".to_string())
+            .and_then(|s| Self::parse_transaction_status(s))?;
+        
+        let description = tx_hashmap.get("DESCRIPTION")
+            .ok_or_else(|| "Отсутствует поле DESCRIPTION в записи".to_string())
+            .map(|s| s.to_string())?;
+
+            Ok(Transaction::new(
+            tx_id, tx_type, from_user_id, to_user_id, amount, timestamp, status, description
+        ))
+    }
+
+    fn parse_transaction_type(type_str: &str) -> Result<TransactionType, String> {
+        match type_str {
+            "DEPOSIT" => Ok(TransactionType::Deposit),
+            "WITHDRAWAL" => Ok(TransactionType::Withdrawal),
+            "TRANSFER" => Ok(TransactionType::Transfer),
+            _ => Ok(TransactionType::Unknown),
+        }
+    }
+
+    fn parse_transaction_status(status_str: &str) -> Result<TransactionStatus, String> {
+        match status_str {
+            "SUCCESS" => Ok(TransactionStatus::Success),
+            "FAILURE" => Ok(TransactionStatus::Failure),
+            "PENDING" => Ok(TransactionStatus::Pending),
+            _ => Ok(TransactionStatus::Unknown),
+        }
+    }
+
+    // // Helper function to parse description field (removes quotes)
+    // fn parse_description_field(s: &str) -> Result<String, String> {
+    //     let trimmed = s.trim();
+        
+    //     // Remove surrounding quotes if they exist
+    //     if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+    //         Ok(trimmed[1..trimmed.len()-1].to_string())
+    //     } else {
+    //         // If no quotes, just return as-is
+    //         Ok(trimmed.to_string())
+    //     }
+    // }
+
+    // Проверка, что все значения есть в транзакции
+    fn tx_has_all_fields(tx_hash_map: &HashMap<String, String>) -> bool {
+        const REQUIRED_FIELDS: [&str; 8] = ["TX_ID", "TX_TYPE", "FROM_USER_ID", "TO_USER_ID", "AMOUNT", "TIMESTAMP", "STATUS", "DESCRIPTION"];        
+
+        for &required_field in &REQUIRED_FIELDS {
+            if !tx_hash_map.contains_key(required_field) {
+                return false;
+            }
+        }
+
+        true
+    }
 }
+
 
 // CSV-формат для Report
 impl CsvFormatIO<Report> for Report {
@@ -318,10 +402,12 @@ impl BinFormatIO<Report> for Report {
         for transaction in &self.transactions {
             transaction.write_to_binary_writer(&mut writer)?;
 
-            writer.flush()
-                .map_err(|e| format!("Не удалось транзакцию: {:?} => {}", transaction, e))?;
+            // Запись каждой транзакции в случае буферизированного вывода
+            // writer.flush()
+            //     .map_err(|e| format!("Не удалось транзакцию: {:?} => {}", transaction, e))?;
         }
         
+        // Сразу все транзакции (или пока буфер не заполнится?)
         writer.flush()
             .map_err(|e| format!("Не удалось записать данные: {}", e))?;
         
@@ -330,12 +416,93 @@ impl BinFormatIO<Report> for Report {
 }
 
 impl TextFormatIO<Report> for Report {
-    fn new_from_text_file<R: std::io::Read>(reader: &mut R) -> Result<Report, String> {
-        todo!()
+    fn new_from_text_file<R: std::io::Read>(reader:  R) -> Result<Report, String> {
+        // match reader.read_to_string(&mut buffer) {
+
+        let buf_reader = BufReader::new(reader);
+        let lines = buf_reader.lines();
+
+        // Создаём новый Report и читаем файл построчно
+        let mut new_report = Self::new();
+
+        // HashMap для однократности ключа
+        let mut cur_tx_hashmap = HashMap::<String, String>::new();
+
+        for cur_line in lines {
+            match cur_line {
+                Ok(ok_line) => {
+                    println!("Прочитанная строка: {}", ok_line);
+
+                    // Пропускаем комментарии
+                    if ok_line.starts_with("#") == true {
+                        continue;
+                    }
+                    // Или пустая строка (должна быть одна?)
+                    else if ok_line.is_empty() {
+                        if Report::tx_has_all_fields(&cur_tx_hashmap) {
+                            if let Ok(transaction) = Report::tx_from_tx_hashmap(&cur_tx_hashmap) {
+                                new_report.add_transaction(transaction);
+                                cur_tx_hashmap.clear();
+                            }
+                            else {
+                                eprintln!("Не все поля распарсились");
+                                cur_tx_hashmap.clear();
+                            }
+                        }
+                        else {
+                            eprintln!("В транзакции не все поля");
+                            cur_tx_hashmap.clear();
+                        }
+
+                        continue;
+                    } 
+                    // Обработка записи - чуть грубовато, разделение по ": " на два токена
+                    else {
+                        let line_tokens: Vec<&str> = ok_line.trim().split(": ").collect();
+                        
+                        if line_tokens.len() != 2 {
+                            continue;
+                        }
+
+                        // TODO: проверить, что уже было значение
+                        cur_tx_hashmap.insert(line_tokens[0].to_string(), line_tokens[1].to_string());
+                    }
+                },
+                Err(e) => {
+                    return Err(format!("Ошибка чтения строки: {}", e));
+                }
+            }
+        }
+
+        // Err("Искусственная ошибка для проверки вызова".to_string())
+        Ok(new_report)
     }
 
     fn write_to_text_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), String> {
-        todo!()
+        // Собираем все данные в текстовом виде в одну строку с newline'ами
+       let mut out_data = String::new();
+
+        // Бежим по вектору (по ссылке)
+        for cur_tx in &self.transactions {
+            // Разделяем newline'ом записи
+            out_data.push_str(&format!("# Запись о транзакции\n"));
+            out_data.push_str(&format!("TX_ID: {}\n", cur_tx.tx_id));
+            out_data.push_str(&format!("TX_TYPE: {}\n", cur_tx.tx_type));
+            out_data.push_str(&format!("FROM_USER_ID: {}\n", cur_tx.from_user_id));
+            out_data.push_str(&format!("TO_USER_ID: {}\n", cur_tx.to_user_id));
+            out_data.push_str(&format!("AMOUNT: {}\n", cur_tx.amount));
+            out_data.push_str(&format!("TIMESTAMP: {}\n", cur_tx.timestamp));
+            out_data.push_str(&format!("STATUS: {}\n", cur_tx.status));
+            // Два newline в конце для разделения записей
+            out_data.push_str(&format!("DESCRIPTION: {}\n\n", cur_tx.description));
+        }
+
+        if let Err(error) = writer.write_all(out_data.as_bytes()) {
+            // .map_err(|e| FormatError::IoError(e.to_string()))?;
+            return Err(error.to_string());
+        }
+
+        Ok(())
     }
 }
 
