@@ -19,7 +19,7 @@ fn main() {
 
     let mut report = Report::new_from_csv_file(&mut file_to_read)
         .unwrap_or_else(|e| {
-            eprintln!("СSV не прочитан: {}", e);
+            eprintln!("Ошибка обработки CSV: {}", e);
             std::process::exit(1);
         });
 

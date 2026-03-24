@@ -2,6 +2,7 @@ use std::fmt::Formatter;
 use std::fmt;
 use std::mem;
 
+use crate::error::ParserError;
 use crate::transaction::fmt::Display;
 
 // Задаём тип (аналог using C++)
@@ -170,7 +171,7 @@ impl Transaction {
     // }
     
     // Используем буферизированный вывод
-    pub fn write_to_binary_writer<W: std::io::Write>(&self, writer: &mut W) -> Result<(), String> {
+    pub fn write_to_binary_writer<W: std::io::Write>(&self, writer: &mut W) -> Result<(), ParserError> {
         let description_bytes = self.description.as_bytes();
         let desc_len = description_bytes.len();
         
@@ -196,9 +197,10 @@ impl Transaction {
         record_buffer.extend_from_slice(&(desc_len as u32).to_be_bytes());
         record_buffer.extend_from_slice(description_bytes);
         
-        // Пишем в буфер
-        writer.write_all(&record_buffer)
-            .map_err(|e| format!("Не удалось записать транзакцию: {}", e))?;
+        // Пишем в буфер (можно через .map_err())
+        if let Err(_) = writer.write_all(&record_buffer) {
+            return Err(ParserError::BinTxWriteError);
+        }
         
         Ok(())
     }

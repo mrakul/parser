@@ -1,6 +1,7 @@
+use byteorder::{ByteOrder, BigEndian};
+
 use std::io::{BufRead, BufReader};
 use std::mem;
-use byteorder::{ByteOrder, BigEndian};
 use std::io::ErrorKind;
 use std::collections::HashMap;
 
@@ -8,6 +9,7 @@ use crate::transaction::{BinTransactionHeader, BinTransactionBodyFixed, Transact
 use crate::csv_format::CsvFormatIO;
 use crate::text_format::TextFormatIO;
 use crate::bin_format::BinFormatIO;
+use crate::error::ParserError;
 
 // Хранение отчёта в виде вектора транзакций
 #[derive(Debug)]
@@ -32,7 +34,7 @@ impl Report {
     }
 
 
-    /*** Реализаии для HashMap, если понадобятся ***/
+    /*** Реализации для HashMap, если понадобятся ***/
     // Добавить транзакцию: важно, что передаём с передачей владения для .insert()
     // С одним проходом => .entry()
     // pub fn add_transaction(&mut self, tx_to_add: Transaction) -> Option<&Transaction> {
@@ -77,7 +79,7 @@ impl Report {
     // TODO: эту секцию перенести в Transaction (?)
 
     // Возвращаем Result<Option<Transaction>, ..., поскольку Transaction может быть не получена в случае EOF
-    fn read_one_bin_transaction<R: std::io::Read>(reader: &mut R) -> Result<Option<Transaction>, String> {
+    fn read_one_bin_transaction<R: std::io::Read>(reader: &mut R) -> Result<Option<Transaction>, ParserError> {
         // Выделяем буфер для header'а
         let mut header_bytes = [0u8; mem::size_of::<BinTransactionHeader>()];
 
@@ -88,7 +90,8 @@ impl Report {
             Ok(()) => {},
             // Для обработки EOF
             Err(ref e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(None),
-            Err(e) => return Err(format!("Failed to read header: {}", e)),
+            // Err(e) => return Err(format!("Ошибка чтения header'а: {}", e)),
+            Err(_) => return Err(ParserError::BinTxReadError),
         }
 
         // Используем внешний crate byteorder для переводов из сетевого порядка байт и обратно
@@ -101,17 +104,20 @@ impl Report {
         
         // Позволяет сравнивать таким образом
         if magic != EXPECTED_MAGIC {
-            return Err(format!("Неверное magic: {:?}, должно быть {:?}", magic, EXPECTED_MAGIC));
+            // return Err(format!("Неверное magic: {:?}, должно быть {:?}", magic, EXPECTED_MAGIC));
+            return Err(ParserError::BinWrongMagicEncountered);
         }
         
         // Читаем body
         let mut body_bytes = vec![0u8; record_size];
         reader.read_exact(&mut body_bytes)
-            .map_err(|e| format!("Не смогли прочитать {}", e))?;
+            // .map_err(|| format!("Не смогли прочитать {}", e))?;
+            .map_err(|_| ParserError::BinTxReadError)?;
         
         // Прочитали меньше чем тело записи
         if body_bytes.len() < BODY_SIZE_NO_DESCR {
-            return Err("Слишком короткая запись".to_string());
+            // return Err("Слишком короткая запись".to_string());
+            return Err(ParserError::BinReadLessThanBody);
         }
         
         // Извлекаем остальные записи
@@ -152,7 +158,8 @@ impl Report {
         
         // Проверка на длину Description
         if offset + desc_len > body_bytes.len() {
-            return Err("Указана слишком большая длина Description".to_string());
+            // return Err("Указана слишком большая длина Description".to_string());
+            return Err(ParserError::BinReadDescLenIsExcessive);
         }
         
         // Забираем description
@@ -164,7 +171,8 @@ impl Report {
 
         // Через слайс
         let description = std::str::from_utf8(description_bytes)
-            .map_err(|e| format!("Только UTF-8 символы: {}", e))?
+            // .map_err(|e| format!("Только UTF-8 символы: {}", e))?
+            .map_err(|_| ParserError::BinReadNonUtf8Symbols)?
             .to_string();
 
         let new_transaction = Transaction::new(tx_id,
@@ -262,7 +270,7 @@ impl CsvFormatIO<Report> for Report {
     /// Использование:
     ///     let mut report = Report::new_from_text_file(&mut file_to_read)
     ///         {...}
-    fn new_from_csv_file<R: std::io::Read>(reader: R) -> Result<Report, String> {
+    fn new_from_csv_file<R: std::io::Read>(reader: R) -> Result<Report, ParserError> {
         // Можно весь прочитать: match reader.read_to_string(&mut buffer) ...
 
         let buf_reader = BufReader::new(reader);
@@ -320,16 +328,18 @@ impl CsvFormatIO<Report> for Report {
 
                     }
                     else {
-                        println!("Неверный формат транзакции: {}", ok_line);
+                        // eprintln!("Неверный формат транзакции: {}", ok_line);
+                        return Err(ParserError::CsvWrongTransactionFormat(ok_line));
                     }
                 },
-                Err(e) => {
-                    return Err(format!("Ошибка чтения строки: {}", e));
+                Err(_e) => {
+                    return Err(ParserError::CsvLineReadError);
                 }
             }
         }
 
-        // Err("Искусственная ошибка для проверки вызова".to_string())
+        // Искусственная ошибка для проверки вызова
+        // Err(ParserError::CsvLineReadError)
         Ok(new_report)
     }
 
@@ -339,7 +349,7 @@ impl CsvFormatIO<Report> for Report {
     /// Использование:
     ///     let mut report = Report::new_from_text_file(&mut file_to_read)
     ///         {...}
-    fn write_to_csv_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), String> {
+    fn write_to_csv_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), ParserError> {
         // Собираем все данные в текстовом виде в одну строку с newline'ами
        let mut out_data = String::new();
 
@@ -363,10 +373,8 @@ impl CsvFormatIO<Report> for Report {
         //     fs::create_dir_all(parent).unwrap();
         // }
         
-        if let Err(error) = writer.write_all(out_data.as_bytes()) {
-            // .map_err(|e| FormatError::IoError(e.to_string()))?;
-            return Err(error.to_string());
-        }
+        writer.write_all(out_data.as_bytes())
+            .map_err(|_| ParserError::CsvTxWriteError)?;
 
         Ok(())
     }
@@ -375,7 +383,7 @@ impl CsvFormatIO<Report> for Report {
 
 /// Реализация трейта для парсинга из Bin-формата в Report и обратно
 impl BinFormatIO<Report> for Report {
-    fn new_from_bin_file<R: std::io::Read>(mut reader: R) -> Result<Report, String> {
+    fn new_from_bin_file<R: std::io::Read>(mut reader: R) -> Result<Report, ParserError> {
         let mut report = Report::new();
         
         // Идём по списку, читая по одному
@@ -397,7 +405,7 @@ impl BinFormatIO<Report> for Report {
         Ok(report)
     }
 
-    fn write_to_bin_file<W: std::io::Write>(&mut self, mut writer: &mut W) -> Result<(), String> {
+    fn write_to_bin_file<W: std::io::Write>(&mut self, mut writer: &mut W) -> Result<(), ParserError> {
         
         for transaction in &self.transactions {
             transaction.write_to_binary_writer(&mut writer)?;
@@ -409,7 +417,7 @@ impl BinFormatIO<Report> for Report {
         
         // Сразу все транзакции (или пока буфер не заполнится?)
         writer.flush()
-            .map_err(|e| format!("Не удалось записать данные: {}", e))?;
+            .map_err(|_| ParserError::BinTxWriteError)?;
         
         Ok(())
     }
@@ -417,7 +425,7 @@ impl BinFormatIO<Report> for Report {
 
 /// Реализация трейта для парсинга из текстового формата в Report и обратно
 impl TextFormatIO<Report> for Report {
-    fn new_from_text_file<R: std::io::Read>(reader:  R) -> Result<Report, String> {
+    fn new_from_text_file<R: std::io::Read>(reader:  R) -> Result<Report, ParserError> {
         // match reader.read_to_string(&mut buffer) {
 
         let buf_reader = BufReader::new(reader);
@@ -469,8 +477,8 @@ impl TextFormatIO<Report> for Report {
                         cur_tx_hashmap.insert(line_tokens[0].to_string(), line_tokens[1].to_string());
                     }
                 },
-                Err(e) => {
-                    return Err(format!("Ошибка чтения строки: {}", e));
+                Err(_) => {
+                    return Err(ParserError::TextLineReadError);
                 }
             }
         }
@@ -479,7 +487,7 @@ impl TextFormatIO<Report> for Report {
         Ok(new_report)
     }
 
-    fn write_to_text_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), String> {
+    fn write_to_text_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), ParserError> {
         // Собираем все данные в текстовом виде в одну строку с newline'ами
        let mut out_data = String::new();
 
@@ -498,9 +506,9 @@ impl TextFormatIO<Report> for Report {
             out_data.push_str(&format!("DESCRIPTION: {}\n\n", cur_tx.description));
         }
 
-        if let Err(error) = writer.write_all(out_data.as_bytes()) {
+        if let Err(_) = writer.write_all(out_data.as_bytes()) {
             // .map_err(|e| FormatError::IoError(e.to_string()))?;
-            return Err(error.to_string());
+            return Err(ParserError::TextTxWriteError);
         }
 
         Ok(())
