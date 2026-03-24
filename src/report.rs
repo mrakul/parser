@@ -254,11 +254,16 @@ impl Report {
 }
 
 
-// CSV-формат для Report
+/// Реализация трейта для парсинга из CSV-формата в Report и обратно
 impl CsvFormatIO<Report> for Report {
+    /// Получение структуры Report из ввода СSV-формата
+    /// Аргументы: <R: std::io::Read>(reader: R)
+    /// Результат: Result<Report, String>
+    /// Использование:
+    ///     let mut report = Report::new_from_text_file(&mut file_to_read)
+    ///         {...}
     fn new_from_csv_file<R: std::io::Read>(reader: R) -> Result<Report, String> {
-        // Можно весь прочитать
-        // match reader.read_to_string(&mut buffer) {
+        // Можно весь прочитать: match reader.read_to_string(&mut buffer) ...
 
         let buf_reader = BufReader::new(reader);
         // Создаём итератор для пропуска header'а - первой строки 
@@ -328,6 +333,12 @@ impl CsvFormatIO<Report> for Report {
         Ok(new_report)
     }
 
+    /// Перевод структуры Report в СSV-формата
+    /// Аргументы: <W: std::io::Write>(&mut self, writer: &mut W)
+    /// Результат: Result<(), String>
+    /// Использование:
+    ///     let mut report = Report::new_from_text_file(&mut file_to_read)
+    ///         {...}
     fn write_to_csv_file<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), String> {
         // Собираем все данные в текстовом виде в одну строку с newline'ами
        let mut out_data = String::new();
@@ -362,7 +373,7 @@ impl CsvFormatIO<Report> for Report {
 }
 
 
-// Bin-формат для Report
+/// Реализация трейта для парсинга из Bin-формата в Report и обратно
 impl BinFormatIO<Report> for Report {
     fn new_from_bin_file<R: std::io::Read>(mut reader: R) -> Result<Report, String> {
         let mut report = Report::new();
@@ -404,6 +415,7 @@ impl BinFormatIO<Report> for Report {
     }
 }
 
+/// Реализация трейта для парсинга из текстового формата в Report и обратно
 impl TextFormatIO<Report> for Report {
     fn new_from_text_file<R: std::io::Read>(reader:  R) -> Result<Report, String> {
         // match reader.read_to_string(&mut buffer) {
