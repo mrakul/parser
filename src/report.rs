@@ -27,7 +27,7 @@ impl Report {
         }
     }
     
-    pub fn add_transaction(&mut self, tx_to_add: Transaction) -> () {
+    fn add_transaction(&mut self, tx_to_add: Transaction) -> () {
         self.transactions.push(tx_to_add)
     }
 
@@ -74,6 +74,8 @@ impl Report {
         }
     }
 
+    // TODO: эту секцию перенести в Transaction (?)
+
     // Возвращаем Result<Option<Transaction>, ..., поскольку Transaction может быть не получена в случае EOF
     fn read_one_bin_transaction<R: std::io::Read>(reader: &mut R) -> Result<Option<Transaction>, String> {
         // Выделяем буфер для header'а
@@ -89,7 +91,7 @@ impl Report {
             Err(e) => return Err(format!("Failed to read header: {}", e)),
         }
 
-        // Используем дополнительный crate byteorder для переводов из сетевого порядка байт и обратно
+        // Используем внешний crate byteorder для переводов из сетевого порядка байт и обратно
         let magic = &header_bytes[0..4];
         // Для чтения используем слайсы - ключевой момент
         let record_size = BigEndian::read_u32(&header_bytes[4..8]) as usize;
@@ -236,19 +238,6 @@ impl Report {
             _ => Ok(TransactionStatus::Unknown),
         }
     }
-
-    // // Helper function to parse description field (removes quotes)
-    // fn parse_description_field(s: &str) -> Result<String, String> {
-    //     let trimmed = s.trim();
-        
-    //     // Remove surrounding quotes if they exist
-    //     if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
-    //         Ok(trimmed[1..trimmed.len()-1].to_string())
-    //     } else {
-    //         // If no quotes, just return as-is
-    //         Ok(trimmed.to_string())
-    //     }
-    // }
 
     // Проверка, что все значения есть в транзакции
     fn tx_has_all_fields(tx_hash_map: &HashMap<String, String>) -> bool {

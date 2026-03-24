@@ -3,11 +3,11 @@ name = "parser"
 version = "0.1.0"
 edition = "2024"
 # Дефолтный исполняемый файл для cargo run
-default-run = "parser"
+default-run = "cli_parser"
 
 # Секция генерируемых бинарников, создаём несколько
 [[bin]]
-name = "parser"
+name = "cli_parser"
 path = "src/main.rs"
 
 [[bin]]
