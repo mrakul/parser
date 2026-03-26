@@ -3,11 +3,11 @@ name = "parser"
 version = "0.1.0"
 edition = "2024"
 # Дефолтный исполняемый файл для cargo run
-default-run = "cli_parser"
+default-run = "converter"
 
 # Секция генерируемых бинарников, создаём несколько
 [[bin]]
-name = "cli_parser"
+name = "converter"
 path = "src/main.rs"
 
 [[bin]]
@@ -18,6 +18,9 @@ path = "src/bin/comparator.rs"
 name = "parser"
 path = "src/lib.rs"
 
-# Для переводов в сетевой порядок байтов и обратно
 [dependencies]
+# Для переводов в сетевой порядок байтов и обратно
 byteorder = "1.5.0"
+# Для работы с командной строкой (тяжеловат, можно рассмотреть альтернативы)
+# Надо включить features дополнительно
+clap = { version = "4.6.0", features = ["derive"] }

@@ -35,3 +35,10 @@ impl Display for ParserError {
         }
     }
 }
+
+// Для возможности перевода в строку
+impl From<ParserError> for String {
+    fn from(parser_error: ParserError) -> String {
+        parser_error.to_string()
+    }
+}
