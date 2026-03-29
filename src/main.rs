@@ -1,5 +1,15 @@
+/// Конвертер из/в форматы: csv, txt, bin
+/// Пример вызова: 
+///
+/// cargo run -- --input ./aux/records_example_wrong_line.csv --input-format csv --output-format csv
+/// 
+/// Вывод:
+/// Ошибка: Встречена транзакция с неверным форматом 1000000000000002,WITHDRAWAL,599094029349995112,0,300,1633036980000,SUCCESS,"Record number 3",,,,
+///
+/// Или вывод отчёта в stdout
 
 use std::fs::File;
+use std::io::BufReader;
 use std::{io::{self, Write}};
 
 use clap::{Parser};
@@ -41,14 +51,15 @@ fn run_converter(args: &Args) -> Result<(), String> {
     validate_format(&args.output_format, "output")?;
     
     // Открываем файл с проверкой
-    let input_file = File::open(&args.input)
+    let mut input_file = File::open(&args.input)
         .map_err(|e| format!("Не удалось открыть файл '{}': {}", args.input, e))?;
-    
+    let mut buf_reader = BufReader::new(&mut input_file);
+
     // Читаем отчёт
     let mut report = match args.input_format.to_lowercase().as_str() {
-        // "csv" => Report::new_from_csv_reader(input_file)?,
-        "txt" => Report::new_from_text_reader(input_file)?,
-        "bin" => Report::new_from_bin_reader(input_file)?,
+        "csv" => Report::new_from_csv_reader(&mut buf_reader)?,
+        "txt" => Report::new_from_text_reader(&mut buf_reader)?,
+        "bin" => Report::new_from_bin_reader(&mut input_file)?,
         _ => return Err(format!("Неверный формат: {}", args.input_format))
         // Поскольку провалидировали, можно так:
         // _ => unreachable!(),

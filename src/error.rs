@@ -1,6 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::fmt;
 
+#[derive(PartialEq, Debug)]
 pub enum ParserError {
     CsvLineReadError,
     // TODO: и в других местах можно добавить доп.информацию
@@ -21,6 +22,7 @@ pub enum ParserError {
     TextMissingFieldValue,
     TextWrongFieldValue,
     TextWrongLineFormat(String),
+    TextWrongFieldName(String),
     TextMissingRequiredFields,
     // Для сравнения, не очень хорошо, наверное, но пока положу сюда
     ReportLengthsAreNotEqual(usize, usize),
@@ -49,6 +51,7 @@ impl Display for ParserError {
             ParserError::TextMissingField          => write!(f, "Отсутствует поле"),
             ParserError::TextMissingFieldValue     => write!(f, "Отсутствует значение"),
             ParserError::TextWrongFieldValue       => write!(f, "Ошибка парсинга значения"),
+            ParserError::TextWrongFieldName(field_read) => write!(f, "Встречено недопустимое слово {}", field_read),
             ParserError::TextWrongLineFormat(cur_line) => write!(f, "Неверный формат строки: {}", cur_line),
             ParserError::TextMissingRequiredFields => write!(f, "Не все поля присутствуют в транзакции"),
             ParserError::ReportLengthsAreNotEqual(rep1_len, rep2_len)               => write!(f, "Разные длины полученных отчётов: {} и {}", rep1_len, rep2_len),

@@ -11,16 +11,14 @@ use crate::bin_format::BinFormatIO;
 
 use std::io::ErrorKind;
 use byteorder::{ByteOrder, BigEndian};
-use clap::Parser;
 
 use std::collections::HashMap;
-use std::io::{BufReader, BufRead};
 
 // Задаём тип (аналог using C++)
-pub type ID = u64;
+pub type _ID = u64;
 
 // Структура для чтения/записи транзакции
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Transaction {
     tx_id:          u64,
     tx_type:        TransactionType,
@@ -90,7 +88,7 @@ impl BinaryTransaction {
 }
 
 // Тип транзакции
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TransactionType {
     Deposit,
     Withdrawal,
@@ -111,7 +109,7 @@ impl Display for TransactionType {
 }
 
 // Статус транзакции
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TransactionStatus {
     Success,
     Failure,
@@ -182,7 +180,7 @@ impl BinFormatIO<Transaction> for Transaction {
     // }
     
     // Используем буферизированный вывод
-    fn write_as_bin_to_writer<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), ParserError> {
+    fn write_as_bin_to_writer<W: std::io::Write>(&self, writer: &mut W) -> Result<(), ParserError> {
         let description_bytes = self.description.as_bytes();
         let desc_len = description_bytes.len();
         
@@ -217,7 +215,7 @@ impl BinFormatIO<Transaction> for Transaction {
     }
 
     // Возвращаем Result<Option<Transaction>, ..., поскольку Transaction может быть не получена в случае EOF
-    fn new_from_bin_reader<R: std::io::Read>(mut reader: R) -> Result<Transaction, ParserError> {
+    fn new_from_bin_reader<R: std::io::Read>(reader: &mut R) -> Result<Transaction, ParserError> {
         // Выделяем буфер для header'а
         let mut header_bytes = [0u8; mem::size_of::<BinTransactionHeader>()];
 
@@ -331,7 +329,7 @@ impl BinFormatIO<Transaction> for Transaction {
 }
 
 impl CsvFormatIO<Transaction> for Transaction {
-    fn new_from_csv_reader<R: std::io::BufRead>(mut reader: R) -> Result<Transaction, ParserError> {
+    fn new_from_csv_reader<R: std::io::BufRead>(reader: &mut R) -> Result<Transaction, ParserError> {
         // Можно весь прочитать: match reader.read_to_string(&mut buffer) ...
 
         // let mut buf_reader = BufReader::new(reader);
@@ -351,7 +349,7 @@ impl CsvFormatIO<Transaction> for Transaction {
             return Err(ParserError::EOFEncountered);
         }
         
-        print!("Прочитанная строка: {}", line_from_buffer);
+        // print!("Прочитанная строка: {}", line_from_buffer);
 
         // Разделяем строку по запятым
         let columns: Vec<&str> = line_from_buffer.trim().split(',').collect();
@@ -405,7 +403,7 @@ impl CsvFormatIO<Transaction> for Transaction {
 
     }
 
-    fn write_as_csv_to_writer<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), ParserError> {
+    fn write_as_csv_to_writer<W: std::io::Write>(&self, writer: &mut W) -> Result<(), ParserError> {
        // Собираем все данные в текстовом виде в одну строку с newline'ами
        let mut out_data = String::new();
 
@@ -428,12 +426,12 @@ impl CsvFormatIO<Transaction> for Transaction {
 }
 
 impl TextFormatIO<Transaction> for Transaction {
-    fn new_from_text_reader<R: std::io::Read>(reader: R) -> Result<Transaction, ParserError> {
+    fn new_from_text_reader<R: std::io::BufRead>(reader: &mut R) -> Result<Transaction, ParserError> {
         // Чтение всего: match reader.read_to_string(&mut buffer) {
         // Все строки - не очень в данном случае
         // let lines = buf_reader.lines();
 
-        let mut buf_reader = BufReader::new(reader);
+        // let mut buf_reader = BufReader::new(reader);
         // HashMap для однократности полей
         let mut cur_tx_hashmap = HashMap::<String, String>::new();
         let mut line_from_buffer = String::new();
@@ -442,7 +440,7 @@ impl TextFormatIO<Transaction> for Transaction {
             line_from_buffer.clear();
             
             // Читаем очередную строку
-            let bytes_read = buf_reader.read_line(&mut line_from_buffer)
+            let bytes_read = reader.read_line(&mut line_from_buffer)
                 .map_err(|_| ParserError::TextLineReadError)?;
             
             // Обработка EOF - пока подумать
@@ -454,18 +452,25 @@ impl TextFormatIO<Transaction> for Transaction {
                 return Err(ParserError::EOFEncountered);
             }
 
-            // Обрабатывам комментарии и записи 
-            if !line_from_buffer.is_empty() {
+            // Обрабатывам комментарии и записи (.read_line() читает вместе с newline)
+            if !line_from_buffer.trim().is_empty() {
 
                 // Пропускаем комменты
                 if line_from_buffer.starts_with('#') {
                     continue;
                 }
 
+                // println!("Прочитанная строка {}", line_from_buffer);
+
                 // Разбиваем на токены и грубовато (для Description) проверяем, что формат "ключ: значение"
                 let line_tokens: Vec<&str> = line_from_buffer.trim().split(": ").collect();        
+                
                 if line_tokens.len() != 2 {
                     return Err(ParserError::TextWrongLineFormat(line_from_buffer))
+                }
+
+                if Transaction::is_acceptable_field(line_tokens[0]) == false {
+                    return Err(ParserError::TextWrongFieldName(line_tokens[0].to_string()));
                 }
                 
                 // TODO: проверить, что уже было поле
@@ -609,6 +614,19 @@ impl Transaction {
         true
     }
 
+    // Проверка, что все значения есть в транзакции
+    fn is_acceptable_field(encountered_field: &str) -> bool {
+        const REQUIRED_FIELDS: [&str; 8] = ["TX_ID", "TX_TYPE", "FROM_USER_ID", "TO_USER_ID", "AMOUNT", "TIMESTAMP", "STATUS", "DESCRIPTION"];        
+
+        for &cur_field in &REQUIRED_FIELDS {
+            if encountered_field == cur_field { 
+                return true;
+            }
+        }
+
+        false
+    }
+
     fn parse_u64_with_warning(in_str: &str, default_value: u64) -> u64 {
         match in_str.parse::<u64>() {
             Ok(parsed) => parsed,
@@ -617,5 +635,245 @@ impl Transaction {
                 default_value
             }
         }
+    }
+}
+
+//*** Секция тестов для Transaction ***/
+
+// Child-модуль
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    // Подключаем всё из родительского модуля (использование методов/полей)
+    use super::*; 
+
+    const _CSV_CONTENT_STR: &str = 
+"TX_ID,TX_TYPE,FROM_USER_ID,TO_USER_ID,AMOUNT,TIMESTAMP,STATUS,DESCRIPTION\n
+1,DEPOSIT,100,200,1000,123456789,SUCCESS,Test transaction\n
+2,TRANSFER,100,0,500,123456790,FAILURE,Withdrawal";
+
+    const _TEXT_CONTENT_STR: &str = "
+# Record 1 (DEPOSIT)
+TX_TYPE: DEPOSIT
+TO_USER_ID: 9223372036854775807
+FROM_USER_ID: 0
+TIMESTAMP: 1633036860000
+DESCRIPTION: \"Record number 1\"
+TX_ID: 1000000000000000
+AMOUNT: 100
+STATUS: FAILURE
+
+# Record 2 (TRANSFER)
+DESCRIPTION: \"Record number 2\"
+TIMESTAMP: 1633036920000
+STATUS: PENDING
+AMOUNT: 200
+TX_ID: 1000000000000001
+TX_TYPE: TRANSFER
+FROM_USER_ID: 9223372036854775807
+TO_USER_ID: 9223372036854775807";
+
+    const CSV_CONTENT_STR_BAD: &str = "1,DEPOSIT,100,200,1000,123456789,SUCCESS,Test transaction,,,,,,,,,,,,,,,,,,,,,,,,,,,\n";
+    const TEXT_CONTENT_STR_BAD: &str = " 
+WRONG FIELD NAME: \"Record number 2\"
+TIMESTAMP: 1633036920000
+STATUS: PENDING
+AMOUNT: 200
+TX_ID: 1000000000000001
+TX_TYPE: TRANSFER
+FROM_USER_ID: 9223372036854775807
+TO_USER_ID: 9223372036854775807";
+
+    const TEXT_CONTENT_STR_BAD_2: &str = " 
+# Record 2 (TRANSFER)
+DESCRIPTION: \"Record number 2\" DESCRIPTION 2: \"Rust is a fantastic language\"
+TIMESTAMP: 1633036920000
+STATUS: PENDING
+AMOUNT: 200
+TX_ID: 1000000000000001
+TX_TYPE: TRANSFER
+FROM_USER_ID: 9223372036854775807
+TO_USER_ID: 9223372036854775807";
+
+    // Исходная одна транзакция, чтобы не забивать тесты
+    // LazyLock для возможности использовать Transaction::new() для static переменной
+    const SOURCE_TX: std::sync::LazyLock<Transaction> = std::sync::LazyLock::new(|| {
+        Transaction::new(
+            1,
+            TransactionType::Deposit,
+            3,
+            5,
+            100,
+            1579303033,
+            TransactionStatus::Failure,
+            "\"Test CSV record\"".to_string(),
+        )
+    });
+
+    const SOURCE_TX_STR: &str = "1,DEPOSIT,3,5,100,1579303033,FAILURE,\"Test CSV record\"";
+
+    /// Запись в бинарном виде в буфер и чтение, сравнение
+    #[test]
+    fn test_bin_tx_to_buf_to_tx() {
+        let source_tx = SOURCE_TX.clone();
+
+        // Пишем в буфер, Vec<u8> имплементирующет Write
+        let mut buffer = Vec::new();
+        assert_eq!(source_tx.write_as_bin_to_writer(&mut buffer), Ok(()));
+
+        // Для чтения оборачиваем в курсор
+        let mut buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
+        let read_tx = Transaction::new_from_bin_reader(&mut buf_cursor)
+            .expect("Транзакция не прочиталась из строки");
+
+        // Сравниваем исходную с прочитанной
+        println!("Исходная и прочитанная транзакции: \n{} {}", source_tx.as_str(), read_tx.as_str());
+        assert_eq!(source_tx, read_tx);
+    }
+    
+    /// Запись в CSV-виде в строку и чтение, сравнение
+    #[test]
+    fn test_csv_tx_to_string_to_tx() {
+        let source_tx = SOURCE_TX.clone();
+
+        let mut buffer = Vec::new();
+
+        // Пишем в буфер, Vec<u8> имплементирующет Write
+        assert_eq!(source_tx.write_as_csv_to_writer(&mut buffer), Ok(()));
+
+        // Перевод в строку (паника на expect или unwrap() в строку)
+        let csv_string  = String::from_utf8(buffer).
+            expect("Встречены не UTF-8 символы");
+
+        println!("CSV в строке: {}", csv_string);
+        
+        // Проверяем прочитанную строку
+        assert!(csv_string.starts_with(SOURCE_TX_STR));
+
+        let mut string_cursor = std::io::Cursor::new(csv_string);
+
+        let read_tx = Transaction::new_from_csv_reader(&mut string_cursor)
+            .expect("Транзакция не прочиталась из строки");
+
+        // Сравниваем исходную с прочитанной
+        assert_eq!(source_tx, read_tx);
+    }
+
+    /// Цепочка: 
+    ///     из транзакции -> BIN -> CSV -> Text, сравнение начального с конечным и промежуточные сравнения
+    #[test]
+    fn test_tx_to_bin_to_csv_roundtrip() {
+        let source_tx = SOURCE_TX.clone();
+
+        // Транзакция -> BIN
+        let mut bin_buffer = Vec::new();
+        let write_result = source_tx.write_as_bin_to_writer(&mut bin_buffer);
+        assert_eq!(write_result, Ok(()));
+        
+        let mut bin_cursor = std::io::Cursor::new(bin_buffer);
+        let mut tx_from_bin = Transaction::new_from_bin_reader(&mut bin_cursor)
+            .expect("Не прочиталось из буфера");
+        
+        // Промежуточное сравнение
+        assert_eq!(source_tx, tx_from_bin);
+
+        // BIN -> CSV
+        let mut csv_buffer = Vec::new();
+        let csv_write_result = tx_from_bin.write_as_csv_to_writer(&mut csv_buffer);
+        assert_eq!(csv_write_result, Ok(()));
+        
+        let csv_string = String::from_utf8(csv_buffer)
+            .expect("Не UTF-8 символы");
+        let mut csv_cursor = std::io::Cursor::new(csv_string);
+        
+        let tx_from_csv = Transaction::new_from_csv_reader(&mut csv_cursor)
+            .expect("Не прочитано из CSV");
+
+        // Промежуточное сравнение
+        assert_eq!(tx_from_bin, tx_from_csv);
+
+        // CSV -> Text
+        let mut txt_buffer = Vec::new();
+        let txt_write_result = tx_from_bin.write_as_text_to_writer(&mut txt_buffer);
+        assert_eq!(txt_write_result, Ok(()));
+        
+        let txt_string = String::from_utf8(txt_buffer)
+            .expect("Не UTF-8 символы");
+        let mut txt_cursor = std::io::Cursor::new(txt_string);
+        
+        let tx_from_txt = Transaction::new_from_text_reader(&mut txt_cursor)
+            .expect("Не прочитано из CSV");
+
+        // (!) Сравнение начального с конечным из текста
+        assert_eq!(source_tx, tx_from_txt)
+
+    }
+
+    // TODO: да, надо покрыть несколько транзакций, это проверяю в simple_use.rs/comparator.rs/main.rs (parser и вывод в stdout)
+
+    /// Плохие варианты
+    /// Неверное MAGIC в BIN
+    #[test]
+    fn test_bin_bad_magic() {
+        let source_tx = SOURCE_TX.clone();
+
+        // Пишем в буфер, Vec<u8> имплементирующего Write
+        let mut buffer = Vec::new();
+        assert_eq!(source_tx.write_as_bin_to_writer(&mut buffer), Ok(()));
+
+        // Испоганиваю MAGIC (@)
+        buffer[0] = 0x40;      
+
+        // Для чтения оборачиваем в курсор
+        let buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
+        assert_eq!(Transaction::new_from_bin_reader(&mut buf_cursor.clone()), Err(ParserError::BinWrongMagicEncountered));
+    }
+
+    /// Испорченная длина Description
+    #[test]
+    fn test_bin_bad_description_len() {
+        let source_tx = SOURCE_TX.clone();
+
+        // Пишем в буфер, Vec<u8> имплементирующего Write
+        let mut buffer = Vec::new();
+        assert_eq!(source_tx.write_as_bin_to_writer(&mut buffer), Ok(()));
+
+        // Испоганиваю длину
+        buffer[50] = 255;
+        buffer[51] = 255;
+        buffer[52] = 255;
+        buffer[53] = 255;
+
+        // Для чтения оборачиваем в курсор
+        let buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
+        assert_eq!(Transaction::new_from_bin_reader(&mut buf_cursor.clone()), Err(ParserError::BinReadDescLenIsExcessive));
+    }
+
+    /// Неверный формат записи CSV, возвращается плохая строка
+    #[test]
+    fn test_csv_too_much_commas() {
+        
+        let mut csv_cursor = std::io::Cursor::new(CSV_CONTENT_STR_BAD.to_string());
+        
+        assert_eq!(Transaction::new_from_csv_reader(&mut csv_cursor), Err(ParserError::CsvWrongTransactionFormat(CSV_CONTENT_STR_BAD.to_string())));
+    }
+
+    /// Текст: неверное имя поля
+    #[test]
+    fn test_text_wrong_record_key() {
+        
+        let mut txt_cursor = std::io::Cursor::new(TEXT_CONTENT_STR_BAD.to_string());
+        
+        assert_eq!(Transaction::new_from_text_reader(&mut txt_cursor), Err(ParserError::TextWrongFieldName("WRONG FIELD NAME".to_string())));
+    }
+
+    /// Текст: неверный формат строки (несколько ключ: значение на одной строке)
+    #[test]
+    fn test_text_record_format() {
+        
+        let mut txt_cursor = std::io::Cursor::new(TEXT_CONTENT_STR_BAD_2.to_string());
+        
+        assert_eq!(Transaction::new_from_text_reader(&mut txt_cursor), Err(ParserError::TextWrongLineFormat("DESCRIPTION: \"Record number 2\" DESCRIPTION 2: \"Rust is a fantastic language\"\n".to_string())));
     }
 }

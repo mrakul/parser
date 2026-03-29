@@ -1,3 +1,5 @@
+/// Файл для примеров использования - в основном, Report'ы целиком
+
 use parser::report::Report;
 use parser::csv_format::CsvFormatIO;
 use parser::bin_format::BinFormatIO;
@@ -12,14 +14,14 @@ fn main() {
     let file_to_read = Path::new("aux/records_example.csv");
 
     // Открываем файл
-    let mut file_to_read = File::open(file_to_read)
+    let file_to_read = File::open(file_to_read)
         .unwrap_or_else(|e| {
             eprintln!("Не удалось открыть файл: {}", e);
             std::process::exit(1);
         });
 
     let mut buf_reader = BufReader::new(file_to_read);
-    let mut report = Report::new_from_csv_reader(&mut buf_reader)
+    let report = Report::new_from_csv_reader(&mut buf_reader)
         .unwrap_or_else(|e| {
             eprintln!("Ошибка обработки CSV: {}", e);
             std::process::exit(1);
@@ -48,13 +50,13 @@ fn main() {
     // Оборачиваем в курсор для передачи как reader
     let mut cursor = Cursor::new(csv_content_str);
 
-    let mut report = Report::new_from_csv_reader(&mut cursor)
+    let report = Report::new_from_csv_reader(&mut cursor)
         .unwrap_or_else(|e| {
             eprintln!("СSV не прочитан: {}", e);
             std::process::exit(1);
         });
 
-        println!("Загружено {} транзакций", report.get_transactions().len());
+        println!("\nЗагружено {} транзакций", report.get_transactions().len());
 
         match report.write_as_csv_to_writer(&mut csv_file_to_write) {
             Ok(()) => println!("Записано в файл: {:?}", csv_file_to_write_path),
@@ -72,7 +74,7 @@ fn main() {
             std::process::exit(1);
         });
 
-    let mut report = Report::new_from_bin_reader(&mut file_to_read)
+    let report = Report::new_from_bin_reader(&mut file_to_read)
         .unwrap_or_else(|e| {
             eprintln!("Bin не прочитан: {}", e);
             std::process::exit(1);
@@ -102,14 +104,15 @@ fn main() {
     // let file_path_to_read = Path::new("aux/records_example.txt");
 
 
-    let mut file_to_read = File::open(file_path_to_read)
+    let file_to_read = File::open(file_path_to_read)
         .unwrap_or_else(|e| {
             eprintln!("Не удалось открыть файл: {}", e);
             std::process::exit(1);
         });
 
-    
-    let mut report = Report::new_from_text_reader(&mut file_to_read)
+    let mut buf_reader = BufReader::new(file_to_read);
+
+    let mut report = Report::new_from_text_reader(&mut buf_reader)
         .unwrap_or_else(|e| {
             eprintln!("Текстовый файл не прочитан: {}", e);
             std::process::exit(1);
@@ -120,7 +123,7 @@ fn main() {
     // 2. Запись в текстовом формате
     let txt_file_to_write_path = Path::new("aux/output.txt");
 
-    let mut txt_file_to_write = File::create(txt_file_to_write_path)
+    let txt_file_to_write = File::create(txt_file_to_write_path)
         .unwrap_or_else(|e| {
             eprintln!("Не удалось создать файл: {}", e);
             std::process::exit(1);
