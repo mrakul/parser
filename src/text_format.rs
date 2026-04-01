@@ -1,9 +1,15 @@
 use crate::error::ParserError;
 
 pub trait TextFormatIO<InternalType> {
-    // Читает отчёт из любого приёмника, реализующего трейт Read (статическая, для создания экземпляра "класса")
+    /// При реализации - получение структуры InternalType из текстового представления
+    /// Читает из любого приёмника, реализующего трейт Read
+    /// Входной параметр: <R: std::io::Read>(reader: &mut R)
+    /// Если неуспешно => ошибка ParserError, описаны в error.rs
     fn new_from_text_reader<R: std::io::BufRead>(reader: &mut R) -> Result<InternalType, ParserError>;
 
-    /// Запись в любой приёмник, реализующий трейт Write
+    /// При реализции - запись структуры Self в текстовом формате в передаваемый writer
+    /// Запись возможна в любой приёмник, реализующий трейт Write
+    /// Входной параметр: <W: std::io::Write>(&self, writer: &mut W) (вызывается от экземпляра структуры)
+    /// Если неуспешно => ошибка ParserError, описаны в error.rs
     fn write_as_text_to_writer<W: std::io::Write>(&mut self, writer: &mut W) -> Result<(), ParserError>;
 }

@@ -321,7 +321,7 @@ impl BinFormatIO<Transaction> for Transaction {
                                                             TransactionStatus::from_u8(status),
                                                             description); 
 
-        println!("Прочитанная запись: {:?}", new_transaction);
+        // println!("Прочитанная запись: {:?}", new_transaction);
 
         Ok(new_transaction)
 
@@ -659,32 +659,6 @@ mod tests {
     // Подключаем всё из родительского модуля (использование методов/полей)
     use super::*; 
 
-    const _CSV_CONTENT_STR: &str = 
-"TX_ID,TX_TYPE,FROM_USER_ID,TO_USER_ID,AMOUNT,TIMESTAMP,STATUS,DESCRIPTION\n
-1,DEPOSIT,100,200,1000,123456789,SUCCESS,Test transaction\n
-2,TRANSFER,100,0,500,123456790,FAILURE,Withdrawal";
-
-    const _TEXT_CONTENT_STR: &str = "
-# Record 1 (DEPOSIT)
-TX_TYPE: DEPOSIT
-TO_USER_ID: 9223372036854775807
-FROM_USER_ID: 0
-TIMESTAMP: 1633036860000
-DESCRIPTION: \"Record number 1\"
-TX_ID: 1000000000000000
-AMOUNT: 100
-STATUS: FAILURE
-
-# Record 2 (TRANSFER)
-DESCRIPTION: \"Record number 2\"
-TIMESTAMP: 1633036920000
-STATUS: PENDING
-AMOUNT: 200
-TX_ID: 1000000000000001
-TX_TYPE: TRANSFER
-FROM_USER_ID: 9223372036854775807
-TO_USER_ID: 9223372036854775807";
-
     const CSV_CONTENT_STR_BAD: &str = "1,DEPOSIT,100,200,1000,123456789,SUCCESS,Test transaction,,,,,,,,,,,,,,,,,,,,,,,,,,,\n";
     const CSV_CONTENT_STR_BAD_2: &str = "1,UNKONWN OPERATION,100,200,1000,123456789,SUCCESS,Test transaction\n";
 
@@ -728,66 +702,76 @@ TO_USER_ID: 9223372036854775807";
 
     /// Запись в бинарном виде в буфер и чтение, сравнение
     #[test]
-    fn test_bin_tx_to_buf_to_tx() {
+    fn test_bin_tx_to_buf_to_tx() -> Result<(), ParserError> {
         let source_tx = SOURCE_TX.clone();
 
-        // Пишем в буфер, Vec<u8> имплементирующет Write
+        // Пишем в буфер, Vec<u8> имплементирует Write
         let mut buffer = Vec::new();
         assert_eq!(source_tx.write_as_bin_to_writer(&mut buffer), Ok(()));
 
         // Для чтения оборачиваем в курсор
+        // Ожидаем, что ошибок нет. Иначе возвращаем ошибку (ниже следую этому же подходу)
         let mut buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
-        let read_tx = Transaction::new_from_bin_reader(&mut buf_cursor)
-            .expect("Транзакция не прочиталась из строки");
+        let read_tx = Transaction::new_from_bin_reader(&mut buf_cursor)?;
+        // Если испоганить MAGIC: buffer[0] = 0x40;
+        // Вывод cargo test в таком случае:
+        //         failures:
+
+        // ---- transaction::tests::test_bin_tx_to_buf_to_tx stdout ----
+        // Error: BinWrongMagicEncountered
 
         // Сравниваем исходную с прочитанной
         println!("Исходная и прочитанная транзакции: \n{} {}", source_tx.as_str(), read_tx.as_str());
         assert_eq!(source_tx, read_tx);
+
+        Ok(())
     }
     
     /// Запись в CSV-виде в строку и чтение, сравнение
     #[test]
-    fn test_csv_tx_to_string_to_tx() {
+    fn test_csv_tx_to_string_to_tx() -> Result<(), ParserError> {
         let source_tx = SOURCE_TX.clone();
 
         let mut buffer = Vec::new();
 
-        // Пишем в буфер, Vec<u8> имплементирующет Write
+        // Пишем в буфер, Vec<u8> имплементирует Write
         assert_eq!(source_tx.write_as_csv_to_writer(&mut buffer), Ok(()));
 
-        // Перевод в строку (паника на expect или unwrap() в строку)
-        let csv_string  = String::from_utf8(buffer).
-            expect("Встречены не UTF-8 символы");
+        // Перевод в строку
+        let csv_string = match String::from_utf8(buffer) {
+            Ok(ok_string) => ok_string,
+            Err(_) => return Err(ParserError::BinReadNonUtf8Symbols),
+        };
 
         println!("CSV в строке: {}", csv_string);
         
         // Проверяем прочитанную строку
         assert!(csv_string.starts_with(SOURCE_TX_STR));
 
+        // Читаем из строки и сравниваем
         let mut string_cursor = std::io::Cursor::new(csv_string);
-
-        let read_tx = Transaction::new_from_csv_reader(&mut string_cursor)
-            .expect("Транзакция не прочиталась из строки");
+        let read_tx = Transaction::new_from_csv_reader(&mut string_cursor)?;
 
         // Сравниваем исходную с прочитанной
         assert_eq!(source_tx, read_tx);
+
+        Ok(())
     }
 
     /// Цепочка: 
     ///     из транзакции -> BIN -> CSV -> Text, сравнение начального с конечным и промежуточные сравнения
     #[test]
-    fn test_tx_to_bin_to_csv_roundtrip() {
+    fn test_tx_to_bin_to_csv_roundtrip() -> Result<(), ParserError> {
         let source_tx = SOURCE_TX.clone();
 
         // Транзакция -> BIN
         let mut bin_buffer = Vec::new();
-        let write_result = source_tx.write_as_bin_to_writer(&mut bin_buffer);
-        assert_eq!(write_result, Ok(()));
+        source_tx.write_as_bin_to_writer(&mut bin_buffer)?;
         
+        // Читаем из BIN-представления
         let mut bin_cursor = std::io::Cursor::new(bin_buffer);
-        let mut tx_from_bin = Transaction::new_from_bin_reader(&mut bin_cursor)
-            .expect("Не прочиталось из буфера");
-        
+        let mut tx_from_bin = Transaction::new_from_bin_reader(&mut bin_cursor)?;
+
         // Промежуточное сравнение
         assert_eq!(source_tx, tx_from_bin);
 
@@ -796,12 +780,15 @@ TO_USER_ID: 9223372036854775807";
         let csv_write_result = tx_from_bin.write_as_csv_to_writer(&mut csv_buffer);
         assert_eq!(csv_write_result, Ok(()));
         
-        let csv_string = String::from_utf8(csv_buffer)
-            .expect("Не UTF-8 символы");
+        // Читаем строку из буфера 
+        let csv_string = match String::from_utf8(csv_buffer) {
+            Ok(ok_string) => ok_string,
+            Err(_) => return Err(ParserError::BinReadNonUtf8Symbols),
+        };
+
+        // Читаем транзакцию из строки
         let mut csv_cursor = std::io::Cursor::new(csv_string);
-        
-        let tx_from_csv = Transaction::new_from_csv_reader(&mut csv_cursor)
-            .expect("Не прочитано из CSV");
+        let tx_from_csv = Transaction::new_from_csv_reader(&mut csv_cursor)?;
 
         // Промежуточное сравнение
         assert_eq!(tx_from_bin, tx_from_csv);
@@ -811,24 +798,29 @@ TO_USER_ID: 9223372036854775807";
         let txt_write_result = tx_from_bin.write_as_text_to_writer(&mut txt_buffer);
         assert_eq!(txt_write_result, Ok(()));
         
-        let txt_string = String::from_utf8(txt_buffer)
-            .expect("Не UTF-8 символы");
+        // Читаем строку из буфера 
+        let txt_string = match String::from_utf8(txt_buffer) {
+            Ok(ok_string) => ok_string,
+            Err(_) => return Err(ParserError::BinReadNonUtf8Symbols),
+        };
+
+        // Читаем транзакцию из строки
         let mut txt_cursor = std::io::Cursor::new(txt_string);
-        
-        let tx_from_txt = Transaction::new_from_text_reader(&mut txt_cursor)
-            .expect("Не прочитано из CSV");
+        let tx_from_txt = Transaction::new_from_text_reader(&mut txt_cursor)?;
 
         // (!) Сравнение начального с конечным из текста
-        assert_eq!(source_tx, tx_from_txt)
+        assert_eq!(source_tx, tx_from_txt);
+
+        Ok(())
 
     }
 
-    // TODO: да, надо покрыть несколько транзакций, это проверяю в simple_use.rs/comparator.rs/main.rs (parser и вывод в stdout)
+    // Примечание: чтение нескольких транзакций и сравнение покрыто в тестах Report.rs
 
     /// Плохие варианты
     /// Неверное MAGIC в BIN
     #[test]
-    fn test_bin_bad_magic() {
+    fn test_bin_bad_magic() -> Result<(), ParserError> {
         let source_tx = SOURCE_TX.clone();
 
         // Пишем в буфер, Vec<u8> имплементирующего Write
@@ -839,13 +831,15 @@ TO_USER_ID: 9223372036854775807";
         buffer[0] = 0x40;      
 
         // Для чтения оборачиваем в курсор
-        let buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
-        assert_eq!(Transaction::new_from_bin_reader(&mut buf_cursor.clone()), Err(ParserError::BinWrongMagicEncountered));
+        let mut buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
+        assert_eq!(Transaction::new_from_bin_reader(&mut buf_cursor), Err(ParserError::BinWrongMagicEncountered));
+
+        Ok(())
     }
 
     /// Испорченная длина Description
     #[test]
-    fn test_bin_bad_description_len() {
+    fn test_bin_bad_description_len() -> Result<(), ParserError> {
         let source_tx = SOURCE_TX.clone();
 
         // Пишем в буфер, Vec<u8> имплементирующего Write
@@ -859,17 +853,21 @@ TO_USER_ID: 9223372036854775807";
         buffer[53] = 255;
 
         // Для чтения оборачиваем в курсор
-        let buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
-        assert_eq!(Transaction::new_from_bin_reader(&mut buf_cursor.clone()), Err(ParserError::BinReadDescLenIsExcessive));
+        let mut buf_cursor: Cursor<Vec<u8>> = Cursor::new(buffer);
+        assert_eq!(Transaction::new_from_bin_reader(&mut buf_cursor), Err(ParserError::BinReadDescLenIsExcessive));
+
+        Ok(())
     }
 
     /// Неверный формат записи CSV, возвращается плохая строка
     #[test]
-    fn test_csv_too_much_commas() {
+    fn test_csv_too_much_commas() -> Result<(), ParserError> {
         
         let mut csv_cursor = std::io::Cursor::new(CSV_CONTENT_STR_BAD.to_string());
         
         assert_eq!(Transaction::new_from_csv_reader(&mut csv_cursor), Err(ParserError::CsvWrongTransactionFormat(CSV_CONTENT_STR_BAD.to_string())));
+    
+        Ok(())
     }
 
     /// Неверный формат записи CSV, возвращается плохая строка
@@ -882,21 +880,23 @@ TO_USER_ID: 9223372036854775807";
 
     /// Текст: неверное имя поля
     #[test]
-    fn test_text_wrong_record_key() {
+    fn test_text_wrong_record_key() -> Result<(), ParserError> {
         
         let mut txt_cursor = std::io::Cursor::new(TEXT_CONTENT_STR_BAD.to_string());
         
         assert_eq!(Transaction::new_from_text_reader(&mut txt_cursor), Err(ParserError::TextWrongFieldName("WRONG FIELD NAME".to_string())));
+    
+        Ok(())
     }
 
     /// Текст: неверный формат строки (несколько ключ: значение на одной строке)
     #[test]
-    fn test_text_record_format() {
+    fn test_text_record_format() -> Result<(), ParserError> {
         
         let mut txt_cursor = std::io::Cursor::new(TEXT_CONTENT_STR_BAD_2.to_string());
         
         assert_eq!(Transaction::new_from_text_reader(&mut txt_cursor), Err(ParserError::TextWrongLineFormat("DESCRIPTION: \"Record number 2\" DESCRIPTION 2: \"Rust is a fantastic language\"\n".to_string())));
+    
+        Ok(())
     }
-
-
 }
