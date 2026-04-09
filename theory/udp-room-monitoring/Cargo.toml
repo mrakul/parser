@@ -1,0 +1,32 @@
+[package]
+name = "room_monitoring"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+bincode = "1.3.0"
+rand = { version = "0.9", optional = true }  # Опциональная зависимость
+log = { version = "0.4", optional = true }
+# env_logger, только когда включена фича logging
+env_logger = { version = "0.10", optional = true }
+
+
+[features]
+default = ["random"]   # Фичи по умолчанию, список
+random =  ["dep:rand"] # Фича random включает опциональную зависимость rand
+sqlite = []            # Пример дополнительной фичи
+# serde = ["dep:serde", "dep:serde_json"] 
+logging = ["dep:log", "dep:env_logger"]
+
+# Зависимость между фичами: объявляем фичу "foo", которая активирует фичу "baz" у зависимости "bar"
+# foo = ["some_dependency/baz"] 
+
+# Если положить в bin, я сделал как example
+# [[bin]]
+# name = "sensor_simulator"
+# path = "bin/sensor_simulator/main.rs"
+
+# [[bin]]
+# name = "monitor"
+# path = "bin/monitor/main.rs"

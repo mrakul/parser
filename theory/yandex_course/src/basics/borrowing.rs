@@ -1,0 +1,137 @@
+pub fn borrowing_example () {
+
+    let mut s1 = String::from("Яндекс");
+    
+    // (!) Важно в примерах внизу, что передаём именно ссылку
+    // Получается, явно её создавая при вызове
+
+    // Передача строки по неизменяемой ссылке
+    let len = calculate_length(&s1);
+    println!("Длина строки '{s1}': {len}.");
+    
+    // Передача по ссылке с изменением
+    change_source_data(&mut s1);
+    println!("Длина строки '{s1}': {}", s1.chars().count());
+    
+    // Перепривязать
+    replace_entirely(&mut s1);
+    println!("Длина строки '{s1}': {}", s1.chars().count());
+
+    // Вызов с понижением изменяемости: &mut String -> &str
+    change(&mut s1);
+
+    // let s2 = move_string();
+}
+
+
+// ❌ Common Misconception
+// "The owner and mutable reference can both exist, but only one can modify at a time"
+// ❌ Wrong. The owner cannot even read while a mutable reference exists. This is exclusive access, not shared access with restrictions.
+fn borrowing_mut_example() {
+    let mut data = String::from("hello");    // Owner has full access
+    
+    {
+        let rw = &mut data;  // ← Mutable borrow STARTS
+                                          //   Owner `data` is NOW FROZEN
+        
+        rw.push_str("!");    // ✅ ONLY rw can mutate
+        println!("{}", rw);         // ✅ ONLY rw can read
+        
+        // data.push_str("?");  // ❌ ERROR: cannot borrow `data` as mutable
+                                //    because it is also borrowed as mutable
+        // println!("{}", data); // ❌ ERROR: cannot borrow `data` as immutable
+                                //    because it is also borrowed as mutable
+    }  // ← Mutable borrow ENDS here (rw dropped)
+    
+    data.push_str("?");  // ✅ Owner regains full access
+    println!("{}", data);  // Works: "hello!?"
+}
+
+
+fn change(s: &mut String) {
+    s.push_str(" Практикум");
+
+    // Понижение изменяемости - `&mut String` → `&str`
+    log(s); 
+}
+
+//&str — не что иное, как ссылка на строковые данные, и в Rust он называется строковым срезом. 
+// Писать функции с параметрами типа &str — хорошая практика, 
+// они гибкие и принимают различные строковые данные (литералы, String, срезы и т. д.).
+// fn log(data: &str) {     => в курсе указан такой тип
+fn log(data: &String) {
+    println!("[LOG]: {}", data);
+}
+
+fn calculate_length(s: &String) -> usize {
+    // В данном случае функция получает доступ к неизменяемым данным. 
+    // При завершении функции ссылка уничтожается, но оригинальные данные остаются, 
+    // поскольку ими всё так же владеет переменная s1.
+    
+    // .len() возвращает в UTF-8, по 2 байта (?)
+    // s.len()
+    s.chars().count()       // => количество символов
+
+    // Если понадобится, можно будет создать сколько угодно неизменяемых ссылок на одно и то же значение. 
+    // Но если сторона, заимствующая доступ к данным, нуждается в их изменении, такой подход не сработает: 
+    // ссылки в Rust, как и переменные, неизменяемы по умолчанию.
+}
+
+fn change_source_data(s: &mut String) -> usize {
+    // Так нельзя, это уже новая строка, новый bind (?)
+    // s = String::from("Новая строка, новая длина");
+
+    // А так можно, изменение исходных данных
+    s.push_str(" + Добавочка");
+
+    s.len()
+}
+
+
+pub fn replace_entirely(s: &mut String) -> usize {
+    // Или полностью привязать новые данные
+    *s = String::from("Новая строка");  
+    
+    s.len()
+}
+
+pub fn reference_lifetime() {  
+    // `s` получает владение
+    let mut s = String::from("Яндекс для borrow checker'а");
+
+    // Первая неизменяемая ссылка на `s`
+    // Фактически не используется
+    let r1 = &s;
+
+    // Вторая неизменяемая ссылка на `s`
+    let r2 = &s;
+
+    // (!) нельзя пока создать ссылку на запись, поскольку r2 ещё заимствует
+    // let rw = &mut s;
+
+    // Последнее использование `r2`
+    println!("{}", r2); 
+
+    // OK: `r1` и `r2` уже недействительны
+    let rw = &mut s;
+    rw.push_str(" => это изменения по mutable-ссылке");
+
+    println!("{}", rw);
+}
+
+// Пример с "висячей ссылкой", что C/C++ пропустил бы 
+/*
+fn dangle() -> &String {
+    let s = String::from("Яндекс");
+
+    // ОШИБКА!: возврат ссылки на локальную переменную
+    &s 
+} // <- `s` уничтожается здесь → ссылка стала бы висячей 
+*/
+
+// Это работает
+fn move_string() -> String {
+    let s = String::from("Яндекс");
+    s  // => это возвращает String и на приёме применяется Move-семантика, то есть становится другим владельцем данных 
+} // <- `s` уничтожается здесь → ссылка стала бы висячей 
+    

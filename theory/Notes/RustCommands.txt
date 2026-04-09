@@ -1,0 +1,102 @@
+# Обновления rustc и всего прочего
+rustup update
+
+# Обновления в проекте связанных crate'сов
+cargo update
+
+# Новый проект для испольняемого файла с fn main()
+cargo new yandex_course [--bin]
+
+# Новый проект с библиотекой
+cargo new yandex_course --lib 
+
+# Просто проверка кода
+cargo check 
+
+# Откомпилировать, собрать
+cargo build 
+
+# Очистить после сборки
+cargo clean
+
+# Откомпилировать, сбилдить, запустить
+cargo run
+
+# Список команд Cargo
+cargo --list
+
+# Установить компонент - например, rustfmt
+rustup component add rustfmt 
+
+# Отформатировать (в директории проекта) - судя по всему, весь crate
+cargo fmt
+
+# Отформатировать один файл
+rustfmt [путь к файлу]
+
+# Если у него есть зависимости по модулям, но надо именно это, то так:
+rustfmt src/mod.rs --skip-children
+
+# Запустить линтер
+cargo clippy
+
+# (!) Осторожно: исправить все замечания линтера
+cargo clippy --fix --bin "yandex_course" -p yandex_course --allow-dirty
+
+# Добавить/удалить внешнюю зависимость - запускать прям в проекте
+cargo add time
+cargo remove time
+
+# Поиск крейтов (crates) - внешних зависимостей
+cargo search
+
+# Запуск программы с передачей командной строки
+cargo run -- balance Alice 100
+, где [balance Alice 100] - команды, argv[1] - это "balance", как водится
+
+# В директории библиотеки поддиректория - examples, файл cli.rs
+cargo run --example cli
+cargo run --example cli -- deposit Alice 300
+
+# Запуск тестов
+cargo test
+# Чтобы print'ы выводились в любом случае
+cargo test -- --no-capture
+
+# Сгенерировать ассемблер
+rustc --crate-type bin ./balance.rs -O --emit=asm -o balance_asm.s
+rustc --crate-type bin ./balance.rs -O --emit=llvm-ir -o balance_asm_llvm.s
+
+# Запуск бинарников из директории ./src/bin/ (cli_utils_rs):
+cargo run --bin cli_utils
+
+# Передать аргументы
+cargo run --bin cli_utils -- arg1 arg2
+
+# Собрать с флагом --release (можно ещё --debug)
+cargo run --release --bin cli_utils
+
+# Запуск без дефолтных фич
+cargo run --example demo_features --no-default-features
+
+# Но включив фичу sqlite
+cargo run --example demo_features --no-default-features --features sqlite
+
+# Для отладки макросов можно использовать cargo expand. Его нужно установить:
+1. cargo install cargo-expand
+2. cargo expand --bin macros_example
+
+# Включаем логирование и устанавливаем уровень
+RUST_LOG=info cargo run --example demo_all_features --features logging
+
+# Подробное логирование
+RUST_LOG=debug cargo run --example demo_all_features --features logging
+
+# Только предупреждения и ошибки
+RUST_LOG=warn cargo run --example demo_all_features --features logging 
+
+# Перезагрузить Rust Analyzer:
+Restart rust-analyzer: This is often the simplest fix. 
+In VS Code, open the Command Palette (Ctrl+Shift+P or Cmd+Shift+P) 
+and run the command "Rust Analyzer: Restart Server".
+
