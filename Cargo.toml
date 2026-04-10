@@ -1,0 +1,11 @@
+# rust-yandex/Cargo.toml
+[workspace]
+
+resolver = "2"
+members = [
+    # "practice/module_1/parser",
+    # "practice/module_2/quotes-streaming",
+]
+
+# Пока помечаю проекты независимыми (в VSCode тогда открывать отдельно директории, а то rust-analyzer не сдюжит)
+exclude = ["theory", "practice"]
