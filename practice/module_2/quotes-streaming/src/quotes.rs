@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-
+use std::sync::RwLock;
 
 type Company = String;
 
 #[derive(Debug, Clone)]
 pub struct StockQuote {
-    pub ticker: String,
+    pub ticker: Company,
     pub price: f64,
     pub volume: u32,
     pub timestamp: u64,
@@ -53,22 +53,30 @@ impl StockQuote {
 
 pub struct QuoteGenerator {
     // Храним цены в мап'е: название -> текущая цена
-    current_prices: HashMap<Company, f64>,
+
+    // Примечание: вследствие этого все методы надо поменять на &self для внутренней мутабельности,
+    // Arc реализует DeRef, поэтому вызов функций происходит на &self
+    stock_prices_rwlocked: RwLock<HashMap<Company, f64>>
+    // prices_mutex: RwLock<HashMap<Company, f64>>,
 }
 
 impl QuoteGenerator {
     pub fn new() -> Self {
         Self {
-            current_prices: HashMap::new(),
+            // stock_prices: HashMap::new(),
+            stock_prices_rwlocked: RwLock::new(HashMap::new()),
         }
     }
 
     // Функция загрузки тикеров из файла - устанавливает начальное значение цены
-    pub fn load_tickers_from_file(&mut self, path: &Path) -> std::io::Result<usize> {
+    pub fn load_tickers_from_file(&self, path: &Path) -> std::io::Result<usize> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut rand_gen = rand::rng();
         let mut num_of_companies = 0;
+
+        // Ставим lock на время наполнения
+        let mut stock_prices = self.stock_prices_rwlocked.write().unwrap();
 
         // Особо не проверяю формат и наличие ячейки в HashMap
         for line in reader.lines() {
@@ -76,34 +84,46 @@ impl QuoteGenerator {
             let cur_ticker = line.trim();
             
             let initial_price = rand_gen.random_range(100.0..=500.0);
-            self.current_prices.insert(cur_ticker.to_string(), initial_price);
+            stock_prices.insert(cur_ticker.to_string(), initial_price);
             num_of_companies += 1;
         }
         
         Ok(num_of_companies)
     }
     
-    // Добавить отдельно компании
-    pub fn add_ticker(&mut self, ticker: &str, initial_price: f64) {
-        self.current_prices.insert(ticker.to_string(), initial_price);
+    // Добавить вручную компании
+    pub fn add_ticker(&self, ticker: &str, initial_price: f64) {
+        // Lock на запись
+        let mut stock_prices = self.stock_prices_rwlocked.write().unwrap();
+        stock_prices.insert(ticker.to_string(), initial_price);
     }
 
+    
+    // Изменить цены
+    pub fn update_prices(&self) {
+        // Lock на запись
+        let mut stock_prices = self.stock_prices_rwlocked.write().unwrap();
+
+        for company_stock_price in stock_prices.values_mut() {            
+                let mut rand_gen = rand::rng();
+                let change_percent = rand_gen.random_range(-0.15..=0.15);
+                *company_stock_price = *company_stock_price * (1.0 + change_percent);
+                
+                // Можно задать границы - удобно
+                *company_stock_price = company_stock_price.max(0.01).min(10000.0);
+        } 
+    }
+
+    /// Получить текущее значение цены
+    pub fn get_current_price(&self, ticker: &str) -> Option<f64> {
+        // Lock на чтение
+        let stock_prices = self.stock_prices_rwlocked.read().unwrap();
+        stock_prices.get(ticker).copied()
+    }
+    
     // Сгенерировать котировку
-    pub fn generate_quote(&mut self, ticker: &str) -> Option<StockQuote> {
-        // Берём текущую цену или вставляем так же, как при загрузке
-        let current_price = self.current_prices.entry(ticker.to_string())
-            .or_insert_with(|| {
-                let mut rng = rand::rng();
-                rng.random_range(100.0..=500.0)
-            });
-        
-        let mut rng = rand::rng();
-        let change_percent = rng.random_range(-0.15..=0.15);
-        *current_price = *current_price * (1.0 + change_percent);
-        
-        // Можно задать границы - удобно
-        *current_price = current_price.max(0.01).min(10000.0);
-        
+    pub fn generate_quote(&self, ticker: &str) -> Option<StockQuote> {
+        // Генерируем объём
         let volume = match ticker {
             // Популярные акции имеют больший объём
             "AAPL" | "MSFT" | "TSLA" => 1000 + (rand::random::<f64>() * 5000.0) as u32,
@@ -111,16 +131,13 @@ impl QuoteGenerator {
             _ => 100 + (rand::random::<f64>() * 1000.0) as u32,
         };
         
+        // Lock на чтение - лок не нужен, делаем в get_current_price
+        // let stock_prices = self.stock_prices_rwlocked.read().unwrap();
         Some(StockQuote {
             ticker: ticker.to_string(),
-            price: *current_price,
+            price: Self::get_current_price(&self, ticker)?,
             volume,
             timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
         })
-    }
-
-    /// Получить текущее значение цены
-    pub fn get_current_price(&self, ticker: &str) -> Option<f64> {
-        self.current_prices.get(ticker).copied()
     }
 } 

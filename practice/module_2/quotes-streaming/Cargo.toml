@@ -7,9 +7,9 @@ edition = "2024"
 rand = "0.9"
 clap = { version = "4.0", features = ["derive"] }
 
-# [[bin]]
-#  name = "server"    
-#  path = "src/bin/server.rs"     
+[[bin]]
+ name = "server"    
+ path = "src/bin/server.rs"     
 
 # [[bin]]    
 # name = "client"    
