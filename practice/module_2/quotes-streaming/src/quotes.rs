@@ -172,6 +172,22 @@ impl QuoteGenerator {
         Ok(receive_from_gen_channel)
     }
     
+    /// Снять с регистрации
+    pub fn deregister_udp_streaming(&self, client_addr: SocketAddr) -> Option<SocketAddr> {
+        // Лочим зарегистрированных на запись
+        let mut streamers = self.udp_streamer_channels_rw.write().unwrap();
+ 
+        // Проверяем, что не было ничего 
+        if let Some(_) = streamers.remove(&client_addr) {
+            println!("🗙 UDP-стрим снят с подписок: {} ", client_addr);
+            return Some(client_addr);
+        }
+        
+        println!("Попытка разрегистрации незарегистрированного UDP-стрима: {}", client_addr);
+        
+        None
+    }
+
     // Вручную послать котировку клиенту
     pub fn send_quote_to_client(&self, client_addr: &SocketAddr, quote: StockQuote) -> Result<(), String> {
         let channels = self.udp_streamer_channels_rw.read().unwrap();

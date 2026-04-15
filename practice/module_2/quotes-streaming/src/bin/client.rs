@@ -9,12 +9,16 @@
 // cargo run --bin client -- --server-addr-port 127.0.0.1:11000 --udp-client-port 30000 --subscriptions-file aux/client_1_tickers.txt
 // cargo run --bin client -- --server-addr-port 127.0.0.1:11000 --udp-client-port 30002 --subscriptions-file aux/client_2_tickers.txt
 
+use quotes_streaming::PING_INTERVAL;
+
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, UdpSocket, SocketAddr};
 use std::fs::File;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use clap::{Parser};
+// Для завершения по Ctrl+C сигналу
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 #[derive(Parser, Debug)]
 #[command(name = "Клиент получения котировок с заданием нужных котировок")]
@@ -31,6 +35,21 @@ struct Args {
 }
 
 fn main() -> io::Result<()> {
+
+    // Используем атомарную переменную для обработки SIGINT
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    let shutdown_flag_clone = Arc::clone(&shutdown_flag);
+
+    // Обработчик SIGINT
+    if let Err(error) = ctrlc::set_handler(move || {
+        println!("\n Получен Ctrl+C SIGINT, закрываем потоки ...");
+        shutdown_flag_clone.store(true, Ordering::SeqCst);
+    }) 
+    {
+        println!("Ошибка установки обработчика SIGINT: {}", error);
+        std::process::exit(1);
+    };
+
     // Читаем аргументы командной строки, ошибки формата обрабатываются в parse()
     let args = Args::parse();
 
@@ -91,6 +110,8 @@ fn main() -> io::Result<()> {
             std::process::exit(1);
         });
 
+    println!("Адрес UDP-приёмника котировок: {}", client_udp_socket.local_addr().unwrap());
+
     // Handle'ы для потоков receiver'а, ping'ера
     let mut udp_receiver_join_handle_opt: Option<JoinHandle<()>> = None;
     let mut udp_ping_join_handle_opt: Option<JoinHandle<()>> = None;
@@ -104,12 +125,12 @@ fn main() -> io::Result<()> {
 
             if reponse_tokens.first() == Some(&"OK:") {
                 // Поток-приёмник котировок
-                udp_receiver_join_handle_opt = Some(launch_udp_receiver(client_udp_socket.try_clone().unwrap()));
+                udp_receiver_join_handle_opt = Some(launch_udp_receiver(client_udp_socket.try_clone().unwrap(), Arc::clone(&shutdown_flag)));
                 
                 // Поток-пингователь
                 let mut udp_ping_server_addr = server_addr_port.clone();
                 udp_ping_server_addr.set_port(udp_client_port + 1);
-                udp_ping_join_handle_opt = Some(launch_udp_ping(client_udp_socket, udp_ping_server_addr));
+                udp_ping_join_handle_opt = Some(launch_udp_ping(client_udp_socket, udp_ping_server_addr, shutdown_flag));
             }
             else if reponse_tokens.first() == Some(&"ERROR:") {
                 println!("Произошла ошибка при подключении к серверу: {}", response);
@@ -167,13 +188,16 @@ fn _append_tickers(command: &mut String, tickers_vec: Vec<String>) {
 }
 
 // Запуск UDP-ресивера
-fn launch_udp_receiver(udp_socket: UdpSocket) -> JoinHandle<()> {
+fn launch_udp_receiver(udp_socket: UdpSocket, shutdown_flag: Arc<AtomicBool>) -> JoinHandle<()> {
         // Поток UDP-стриминга под нового клиента 
     let udp_receiver_join_handle = std::thread::spawn(move || {
             // Читаем из каналов
             let mut buffer = [0u8; 1024];
     
-            loop {
+            // Чтобы можно было обработать Ctrl+C не "под нагрузкой" потока
+            udp_socket.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
+
+            while !shutdown_flag.load(Ordering::SeqCst) {
                 match udp_socket.recv_from(&mut buffer) {
                     Ok((bytes_read, sender_addr)) => {
                         // Ожидаем символы UTF-8
@@ -183,7 +207,12 @@ fn launch_udp_receiver(udp_socket: UdpSocket) -> JoinHandle<()> {
                             }
                             Err(error) => eprintln!("Не удалось декодировать UTF-8: {}", error),
                         }
-                    }
+                    },
+                    // Надо проверить, в противном случае recv_from блокирующий, то есть флаг сработает только "под нагрузкой"
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || 
+                                     e.kind() == std::io::ErrorKind::TimedOut => {
+                        continue;
+                    },
                     Err(error) => {
                         eprintln!("Ошибка приёма UDP-датаграммы: {}", error);
                         // Обработка в зависимости от ошибки
@@ -193,32 +222,38 @@ fn launch_udp_receiver(udp_socket: UdpSocket) -> JoinHandle<()> {
 
                 std::thread::sleep(Duration::from_millis(500));
             }
+
+            println!("Поток UDP-receiver завершился");
     });
 
     return udp_receiver_join_handle;
 }
 
 // Запуск UDP-пингера
-fn launch_udp_ping(udp_socket: UdpSocket, ping_to_addr: SocketAddr) -> JoinHandle<()> {
+fn launch_udp_ping(udp_socket: UdpSocket, ping_to_addr: SocketAddr, shutdown_flag: Arc<AtomicBool>) -> JoinHandle<()> {
     // Поток UDP-пинг 
     let udp_ping_join_handle = std::thread::spawn(move || {
         // Сообщение PING, с newline
         let ping_message = b"PING\n";
         
-        loop {
+        while !shutdown_flag.load(Ordering::SeqCst) {
             // Отправляем PING на сервер
             match udp_socket.send_to(ping_message, ping_to_addr) {
                 Ok(bytes_sent) => {
-                println!("Пинг отправлен ({} байт) PING на {}", bytes_sent, ping_to_addr);
+                println!("PING отправлен ({} байт) на {}", bytes_sent, ping_to_addr);
                 }
                 Err(e) => {
                     eprintln!("Ошибка отправки PING: {}", e);
                 }
             }
+
+            // Тут можно поставить цикл с проверкой флага типа 10 по 200мс, чтобы быстрее среагировать, пока не сделал 
         
             // Ждём 2 секунды перед следующим пингом (как в задании)
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(PING_INTERVAL));
         }
+    
+        println!("Поток PING-sender завершился");
     });
 
     return udp_ping_join_handle;
