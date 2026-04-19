@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::RwLock;
 use std::time::Duration;
 use crossbeam_channel as channel;
+use std::sync::PoisonError;
 
 type Company = String;
 
@@ -66,6 +67,42 @@ pub struct UdpStreamSubscriber {
     pub tickers: Vec<String>,
 }
 
+#[derive(Debug)]
+// Несколько возможных типов ошибок
+pub enum QuoteError {
+    IoError(std::io::Error),
+    LockPoisoned(String),
+    ClientAlreadyRegistered(SocketAddr),
+    SendQuoteError(String),
+}
+
+// Для вывода QuoteError
+impl std::fmt::Display for QuoteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QuoteError::IoError(e) => write!(f, "IO Error: {}", e),
+            QuoteError::LockPoisoned(msg) => write!(f, "Lock Poisoned: {}", msg),
+            QuoteError::ClientAlreadyRegistered(registered_addr) => write!(f, "Клиент уже зарегистрирован для адреса: {}", registered_addr),
+            QuoteError::SendQuoteError(reason) => write!(f, "Ошибка посылки котировки: {}", reason),
+        }
+    }
+}
+
+// impl std::error::Error for QuoteError {}
+
+impl From<std::io::Error> for QuoteError {
+    fn from(err: std::io::Error) -> Self {
+        QuoteError::IoError(err)
+    }
+}
+
+// Темплейтная from для преобразования ошибки
+impl<T> From<PoisonError<T>> for QuoteError {
+    fn from(_: PoisonError<T>) -> Self {
+        QuoteError::LockPoisoned("Внутренняя ошибка RwLock - RwLock в состоянии 'poisoned'".to_string())
+    }
+}
+
 
 impl QuoteGenerator {
     pub fn new() -> Self {
@@ -77,14 +114,14 @@ impl QuoteGenerator {
     }
 
     // Функция загрузки тикеров из файла - устанавливает начальное значение цены
-    pub fn load_tickers_from_file(&self, path: &Path) -> std::io::Result<usize> {
+    pub fn load_tickers_from_file(&self, path: &Path) -> Result<usize, QuoteError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut rand_gen = rand::rng();
         let mut num_of_companies = 0;
 
         // Ставим lock на время наполнения
-        let mut stock_prices = self.stock_prices_rw.write().unwrap();
+        let mut stock_prices = self.stock_prices_rw.write()?;
 
         // Особо не проверяю формат и наличие ячейки в HashMap
         for line in reader.lines() {
@@ -100,17 +137,20 @@ impl QuoteGenerator {
     }
     
     // Добавить вручную компании
-    pub fn add_ticker(&self, ticker: &str, initial_price: f64) {
+    pub fn add_ticker(&self, ticker: &str, initial_price: f64) -> Result<(), QuoteError> {
         // Lock на запись
-        let mut stock_prices = self.stock_prices_rw.write().unwrap();
+        let mut stock_prices = self.stock_prices_rw.write()?;
+        
         stock_prices.insert(ticker.to_string(), initial_price);
+
+        Ok(())
     }
 
     
     // Изменить цены
-    pub fn update_prices(&self) {
+    pub fn update_prices(&self) -> Result<(), QuoteError> {
         // Lock на запись
-        let mut stock_prices = self.stock_prices_rw.write().unwrap();
+        let mut stock_prices = self.stock_prices_rw.write()?;
 
         for company_stock_price in stock_prices.values_mut() {            
                 let mut rand_gen = rand::rng();
@@ -120,17 +160,19 @@ impl QuoteGenerator {
                 // Можно задать границы - удобно
                 *company_stock_price = company_stock_price.max(0.01).min(10000.0);
         } 
+
+        Ok(())
     }
 
     /// Получить текущее значение цены
-    pub fn get_current_price(&self, ticker: &str) -> Option<f64> {
+    pub fn get_current_price(&self, ticker: &str) -> Result<Option<f64>, QuoteError> {
         // Lock на чтение
-        let stock_prices = self.stock_prices_rw.read().unwrap();
-        stock_prices.get(ticker).copied()
+        let stock_prices = self.stock_prices_rw.read()?;
+        Ok(stock_prices.get(ticker).copied())
     }
     
     // Сгенерировать котировку
-    pub fn generate_quote(&self, ticker: &str) -> Option<StockQuote> {
+    pub fn generate_quote(&self, ticker: &str) -> Result<Option<StockQuote>, QuoteError> {
         // Генерируем объём
         let volume = match ticker {
             // Популярные акции имеют больший объём
@@ -140,20 +182,24 @@ impl QuoteGenerator {
         };
         
         // Lock на чтение - лок не нужен, делаем в get_current_price
-        // let stock_prices = self.stock_prices_rwlocked.read().unwrap();
-        Some(StockQuote {
-            ticker: ticker.to_string(),
-            price: Self::get_current_price(&self, ticker)?,
-            volume,
-            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
-        })
+        let quote_option = Self::get_current_price(self, ticker)?
+            .map(|got_price_value| StockQuote {
+                ticker: ticker.to_string(),
+                price: got_price_value,
+                volume,
+                // Оставил .unwrap() намеренно, поскольку крайне меловероятно, и здесь это подходящий подход, насколько понял
+                // Но суть ошибки понял, если текущая дата установлена меньше UNIX_EPOCH (можно поменять на expect())
+                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64,
+            });
+
+        Ok(quote_option)
     }
 
 
     /// Регистрация "подписчиков" (UDP-стримеров) с указанными тикерами
-    pub fn register_udp_streaming(&self, client_addr: SocketAddr, tickers_subscribe: Vec<String>) -> Result<channel::Receiver<StockQuote>, String> {
-        // Лочим зарегистрированных на запись
-        let mut streamers = self.udp_streamer_channels_rw.write().unwrap();
+    pub fn register_udp_streaming(&self, client_addr: SocketAddr, tickers_subscribe: Vec<String>) -> Result<channel::Receiver<StockQuote>, QuoteError> {
+        // Лочим зарегистрированных на запись, пробрасываем ошибку
+        let mut streamers = self.udp_streamer_channels_rw.write()?;
  
         // Создаём канал для UDP-потока-стримера
         let (send_to_client_channel, receive_from_gen_channel) = channel::unbounded::<StockQuote>();
@@ -173,76 +219,93 @@ impl QuoteGenerator {
     }
     
     /// Снять с регистрации
-    pub fn deregister_udp_streaming(&self, client_addr: SocketAddr) -> Option<SocketAddr> {
-        // Лочим зарегистрированных на запись
-        let mut streamers = self.udp_streamer_channels_rw.write().unwrap();
- 
-        // Проверяем, что не было ничего 
+    pub fn deregister_udp_streaming(&self, client_addr: SocketAddr) -> Result<Option<SocketAddr>, QuoteError> {
+        // Лочим зарегистрированных на запись, ошибку пробрасываем выше
+        let mut streamers = self.udp_streamer_channels_rw.write()?;
+        
         if let Some(_) = streamers.remove(&client_addr) {
             log::info!("🗙 UDP-стрим снят с подписок: {} ", client_addr);
-            return Some(client_addr);
+            // Возвращаем Option с разрегистрированным клиентом
+            Ok(Some(client_addr))
+        } else {
+            log::warn!("Попытка разрегистрации незарегистрированного UDP-стрима: {}", client_addr);
+            // Такого клиент не зарегистрировано, выводим Warning, но это Ok
+            Ok(None)
         }
-        
-        log::warn!("Попытка разрегистрации незарегистрированного UDP-стрима: {}", client_addr);
-        
-        None
     }
 
     // Вручную послать котировку клиенту
-    pub fn send_quote_to_client(&self, client_addr: &SocketAddr, quote: StockQuote) -> Result<(), String> {
-        let channels = self.udp_streamer_channels_rw.read().unwrap();
+    pub fn send_quote_to_client(&self, client_addr: &SocketAddr, quote: StockQuote) -> Result<(), QuoteError> {
+        let channels = self.udp_streamer_channels_rw.read()?;
         
         if let Some(client_channel) = channels.get(client_addr) {
             // Проверка, подписан ли на текущий тикер
             if client_channel.tickers.contains(&quote.ticker) {
-                client_channel.to_streaming_thread_channel.send(quote)
-                    .map_err(|e| format!("Ошибка отправки котировки: {}", e))?;
+                client_channel.to_streaming_thread_channel.send(quote.clone())
+                    // Преобразуем ошибку работы с каналом в QuoteError::SendQuoteError 
+                    .map_err(|send_error| {
+                        let error_msg = format!("Ошибка отправки котировки '{}' для клиента {}: ошибка работы с каналом: {}", 
+                                                         quote.ticker, client_addr, send_error);
+                        QuoteError::SendQuoteError(error_msg)
+                    })?;
                 Ok(())
             } else {
-                Err("UDP-стример не подписан на текущий тикер".to_string())
+                Err(QuoteError::SendQuoteError("UDP-стример не подписан на текущий тикер".to_string()))
             }
         } else {
-            Err("Клиент не найден".to_string())
+            Err(QuoteError::SendQuoteError(format!("Клиент не найден {}", client_addr)))
         }
     }
     
     // Послать каждому подписчику котировки тикеров, на которые он подписан
-    pub fn broadcast_quote(&self, quote: &StockQuote) {
-        let streamers = self.udp_streamer_channels_rw.read().unwrap();
+    pub fn broadcast_quote(&self, quote: &StockQuote) -> Result<(), QuoteError> {
+        let streamers = self.udp_streamer_channels_rw.read()?;
         
         for (_, client_channel) in streamers.iter() {
             if client_channel.tickers.contains(&quote.ticker) {
                 let _ = client_channel.to_streaming_thread_channel.send(quote.clone());
             }
         }
+
+        Ok(())
     }
     
     // Однократно послать котировки, на которые подписаны (основной цикл при создании потока)
-    pub fn broadcast_quotes_to_subscribers(&self) {
-        let stock_prices = self.stock_prices_rw.read().unwrap();
+    pub fn broadcast_quotes_to_subscribers(&self) -> Result<(), QuoteError> {
+        let stock_prices = self.stock_prices_rw.read()?;
 
         for (ticker, _) in stock_prices.iter() {
-            if let Some(quote) = Self::generate_quote(&self, ticker) {
-                self.broadcast_quote(&quote);
+            // Ошибку пробрасываем здесь
+            match Self::generate_quote(self, ticker)? {
+                Some(quote) => {
+                    if let Err(e) = self.broadcast_quote(&quote) { 
+                        log::error!("Не удалось отправить котировку [{}]: {}", ticker, e);
+                    }
+                },
+                None => {
+                    // Это маловероятно
+                    log::error!("Отсутствует котировка для [{}]", ticker);
+                }
             }
-            else {
-                log::error!("Не удалось сгенерировать котировку для тикера [{}]", ticker);
-            }
+
+
         }
 
         std::thread::sleep(Duration::from_millis(100));
+
+        Ok(())
     }
 
     // Проверка, начался ли уже стриминг на указанный адрес:порт
     fn is_streaming_already_started(&self, client_addr: &SocketAddr, 
                                     streamers: &std::sync::RwLockWriteGuard<'_, HashMap<SocketAddr, UdpStreamSubscriber>>)
-                                     -> Result<(), String> 
+                                     -> Result<(), QuoteError> 
     {
         // Лок делаю на запись при попытке регистрации
         // let streamers = self.udp_streamer_channels_rw.read().unwrap();
         
         if streamers.contains_key(client_addr) {
-            return Err(format!("Стриминг уже начался на указанный адрес:порт: {}", client_addr));
+            return Err(QuoteError::ClientAlreadyRegistered(client_addr.clone()));
         }
 
         Ok(())

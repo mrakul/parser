@@ -29,15 +29,15 @@ fn main() -> io::Result<()> {
     loop {
         print!("> ");
 
-        io::stdout().flush().unwrap();
+        if let Err(e) = io::stdout().flush() {
+            eprintln!("Warning: проблема вывода в stdout: {}", e);
+            // Пока ворнинг - может быть некритично для основной логики
+        }
 
         // Читаем команду из консоли в строку
         let mut input_line = String::new();
         stdin.read_line(&mut input_line)?; 
         
-        //     return ConnectionResult::Lost;
-        // }
-
         let trimmed_input = input_line.trim();
 
         // любые другие команды

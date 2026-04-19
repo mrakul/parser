@@ -48,7 +48,13 @@ cargo add time
 cargo remove time
 
 # Поиск крейтов (crates) - внешних зависимостей
-cargo search
+cargo search tokio
+
+# Просмотр инфомрации по крейтам
+cargo info tokio
+
+# Откроет сгенерированную rustdoc страницу со всеми модулями, функциями и примерами.
+cargo doc --package tokio --open
 
 # Запуск программы с передачей командной строки
 cargo run -- balance Alice 100

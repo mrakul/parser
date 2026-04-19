@@ -24,13 +24,13 @@ use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 #[command(name = "Клиент получения котировок с заданием нужных котировок")]
 struct Args {
     #[arg(long)]
-    server_addr_port: String,
+    server_addr: String,
 
     #[arg(long)]
-    udp_client_port: String,
+    udp_port: String,
 
     #[arg(long)]
-    subscriptions_file: String,
+    tickers_file: String,
 
 }
 
@@ -53,7 +53,7 @@ fn main() -> io::Result<()> {
     // Читаем аргументы командной строки, ошибки формата обрабатываются в parse()
     let args = Args::parse();
 
-    let subscriptions_open = File::open(args.subscriptions_file)?;
+    let subscriptions_open = File::open(args.tickers_file)?;
     let reader_subs = BufReader::new(subscriptions_open);
     let mut subscriptions= Vec::<String>::new();
 
@@ -68,20 +68,20 @@ fn main() -> io::Result<()> {
     println!("Запрошенные котировки: {:?}", subscriptions);
 
     // Парсим адрес
-    let server_addr_port= match args.server_addr_port.parse::<SocketAddr>() {
+    let server_addr_port= match args.server_addr.parse::<SocketAddr>() {
         Ok(parsed_addr) => parsed_addr,
         Err(error) => {
-            eprintln!("Адрес не распарсился '{}': {}", args.server_addr_port, error);
+            eprintln!("Адрес не распарсился '{}': {}", args.server_addr, error);
             std::process::exit(1);
         }
         // Можно .unwrap_or_else()
     };
 
     // Парсим UDP-порт, куда будут приходит котировки
-    let udp_client_port: u16 = match args.udp_client_port.parse::<u16>() {
+    let udp_client_port: u16 = match args.udp_port.parse::<u16>() {
         Ok(parsed_port) => parsed_port,
         Err(error) => {
-            eprintln!("Порт не распарсился '{}': {}", args.udp_client_port, error);
+            eprintln!("Порт не распарсился '{}': {}", args.udp_port, error);
             std::process::exit(1);
         }
     };
@@ -97,7 +97,11 @@ fn main() -> io::Result<()> {
     let read_count = to_client_stream.read(&mut buffer)?;
     let starting_string = String::from_utf8_lossy(&buffer[..read_count]);
     print!("{}", starting_string);
-    io::stdout().flush().unwrap();
+
+    if let Err(e) = io::stdout().flush() {
+        eprintln!("Warning: проблема вывода в stdout: {}", e);
+        // Пока ворнинг - может быть некритично для основной логики
+    }
 
     // Посылаем команду STREAM: STREAM udp://127.0.0.1:30000 [тикеры из файла]
     let stream_request_command = format!("STREAM udp://127.0.0.1:{} {}", udp_client_port, subscriptions.join(","));
@@ -110,7 +114,13 @@ fn main() -> io::Result<()> {
             std::process::exit(1);
         });
 
-    println!("Адрес UDP-приёмника котировок: {}", client_udp_socket.local_addr().unwrap());
+        match client_udp_socket.local_addr() {
+            Ok(addr) => println!("Адрес UDP-приёмника котировок: {}", addr),
+            Err(e) => {
+                eprintln!("Не удалось получить адрес локального UDP сокета: {}", e);
+                std::process::exit(1);
+            }
+        }
 
     // Handle'ы для потоков receiver'а, ping'ера
     let mut udp_receiver_join_handle_opt: Option<JoinHandle<()>> = None;
@@ -125,7 +135,7 @@ fn main() -> io::Result<()> {
 
             if reponse_tokens.first() == Some(&"OK:") {
                 // Поток-приёмник котировок
-                udp_receiver_join_handle_opt = Some(launch_udp_receiver(client_udp_socket.try_clone().unwrap(), Arc::clone(&shutdown_flag)));
+                udp_receiver_join_handle_opt = Some(launch_udp_receiver(client_udp_socket.try_clone()?, Arc::clone(&shutdown_flag)));
                 
                 // Поток-пингователь
                 let mut udp_ping_server_addr = server_addr_port.clone();
@@ -144,13 +154,15 @@ fn main() -> io::Result<()> {
 
     // Ждём завершение, если был запущен
     if let Some(udp_receiver_join_handle) = udp_receiver_join_handle_opt  {
-        // TODO: да, обработка ошибок
-        udp_receiver_join_handle.join().unwrap()
+        if let Err(e) = udp_receiver_join_handle.join() {
+            eprintln!("Поток UDP-receiver не завершился успешно: {:?}", e);
+        }
     }
-
+    
     if let Some(udp_ping_join_handle) = udp_ping_join_handle_opt  {
-        // TODO: да, обработка ошибок
-        udp_ping_join_handle.join().unwrap();
+        if let Err(e) = udp_ping_join_handle.join() {
+            eprintln!("Поток UDP-ping не завершился успешно: {:?}", e);
+        }
     }
 
     Ok(())
@@ -195,7 +207,9 @@ fn launch_udp_receiver(udp_socket: UdpSocket, shutdown_flag: Arc<AtomicBool>) ->
             let mut buffer = [0u8; 1024];
     
             // Чтобы можно было обработать Ctrl+C не "под нагрузкой" потока
-            udp_socket.set_read_timeout(Some(std::time::Duration::from_millis(100))).ok();
+            if let Err(e) = udp_socket.set_read_timeout(Some(std::time::Duration::from_millis(100))) {
+                eprintln!("Warning: невозможность установки таймаута для сокета: {}", e);
+            }
 
             while !shutdown_flag.load(Ordering::SeqCst) {
                 match udp_socket.recv_from(&mut buffer) {
@@ -223,7 +237,7 @@ fn launch_udp_receiver(udp_socket: UdpSocket, shutdown_flag: Arc<AtomicBool>) ->
                 std::thread::sleep(Duration::from_millis(500));
             }
 
-            println!("Поток UDP-receiver завершился");
+            println!("Завершение UDP-receiver'а ...");
     });
 
     return udp_receiver_join_handle;
@@ -253,7 +267,7 @@ fn launch_udp_ping(udp_socket: UdpSocket, ping_to_addr: SocketAddr, shutdown_fla
             std::thread::sleep(Duration::from_secs(PING_INTERVAL_SECS));
         }
     
-        println!("Поток PING-sender завершился");
+        println!("Завершение PING-sender'а ...");
     });
 
     return udp_ping_join_handle;

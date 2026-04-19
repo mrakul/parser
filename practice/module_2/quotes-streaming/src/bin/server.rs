@@ -3,7 +3,7 @@
 
 use crossbeam_channel::Receiver;
 use quotes_streaming::{SERVER_ADDR, PING_TIMEOUT_MILLISECS};
-use quotes_streaming::quotes::{QuoteGenerator, StockQuote};
+use quotes_streaming::quotes::{QuoteError, QuoteGenerator, StockQuote};
 
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, AtomicU64};
@@ -33,13 +33,22 @@ fn main() -> std::io::Result<()> {
     let quotes_generator_clone = quotes_generator_arc.clone();
 
     // Запускаем поток генератора цен до парсинга команд
-    std::thread::spawn(move || -> std::io::Result<()> {
+    std::thread::spawn(move || -> Result<(), QuoteError> {
         let loaded_count = quotes_generator_clone.load_tickers_from_file(Path::new("aux/tickers.txt"))?;
         log::info!("Загружено {} компаний для стриминга ...", loaded_count);
 
         loop {
-            quotes_generator_clone.update_prices();
-            quotes_generator_clone.broadcast_quotes_to_subscribers();
+            if let Err(error) = quotes_generator_clone.update_prices() {
+                log::error!("Не удалось обновить цены: {}", error);
+                // Если критическая ошибка, останавливаем обработку. Пока оставляю так
+                // break; 
+            }
+
+            if let Err(error) = quotes_generator_clone.broadcast_quotes_to_subscribers() {
+                log::error!("Не удалось послать котировки подписчикам: {}", error);
+                // Аналогично
+                // break;
+            }
 
             std::thread::sleep(Duration::from_secs(2));
         }
@@ -92,11 +101,15 @@ pub fn server_process_request(mut stream: TcpStream, quotes_generator: Arc<Quote
         }
     };
 
-    // let client_addr = stream.peer_addr().expect("Не удалось получить адрес клиента из сокета");
-    // let server_addr = stream.local_addr().expect("Не удалось получить адрес сервера из сокета");
-
     // Клонируем stream: один экземпляр для чтения (обёрнут в BufReader), другой — для записи (для двух буферов под капотом)
-    let mut to_client_tcp_stream = stream.try_clone().expect("Ошибка клонирования стрима");
+    let mut to_client_tcp_stream = match stream.try_clone() {
+        Ok(stream) => stream,
+        Err(e) => {
+            log::error!("Ошибка клонирования stream: {}", e);
+            // Клиент должен получить TCP FIN
+            return;
+        }
+    };
     let mut to_server_tcp_stream = BufReader::new(stream);
 
     // Выводим серверу и отправляем клиенту
@@ -181,13 +194,20 @@ pub fn server_process_request(mut stream: TcpStream, quotes_generator: Arc<Quote
 
                         send_msg_to_tcp_client(&mut to_client_tcp_stream,
                                                         format!("OK: Начало стриминга: {} → {}\n", server_udp_addr_port, 
-                                                                                                            stream_command_ok.client_udp_addr));
+                                                                                                   stream_command_ok.client_udp_addr));
                         log::info!("Начало стриминга: {} → {}", server_udp_addr_port, stream_command_ok.client_udp_addr);
 
                         /*** Создание потоков: UDP-стриминг и PING ***/
 
                         // Сокет для пинга на чтение. TODO: обработка unwrap(), всё понимаю
-                        let ping_udp_socket = server_udp_socket.try_clone().unwrap();
+                        let ping_udp_socket = match server_udp_socket.try_clone() {
+                            Ok(socket) => socket,
+                            Err(e) => {
+                                log::error!("Ошибка клонирования для PING-receiver'а: {} {}", e, stream_command_ok.client_udp_addr);
+                                return;
+                            }
+                        };
+
                         // Делится между потоками, делаем по паре (клон при передаче в функцию)
 
                         // Пинг Arc'ованный не нужен в текущем подходе, используется только PING-приёмником с одной moved-версией при создании потока
@@ -225,6 +245,8 @@ pub fn server_process_request(mut stream: TcpStream, quotes_generator: Arc<Quote
 }
 
 fn now_milliseconds() -> u64 {
+    // Оставил .unwrap() намеренно, поскольку крайне меловероятно, и здесь это подходящий подход, насколько понял
+    // Но суть ошибки понял, если текущая дата установлена меньше UNIX_EPOCH (можно поменять на expect())
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
@@ -296,7 +318,11 @@ fn launch_udp_ping_receiver(from_client_udp_socket: UdpSocket,
 {
     let join_handle = thread::spawn(move || {
         // Аналогично клиенту, читающему UDP-датаграммы
-        from_client_udp_socket.set_read_timeout(Some(Duration::from_millis(100))).ok();
+        if let Err(e) = from_client_udp_socket.set_read_timeout(Some(Duration::from_millis(100))) {
+            log::warn!("Невозможность установки таймаута для сокета: {}", e);
+            // Поставлю ворнинг, но сокет может заблокироваться дольше ожидаемого
+        }
+
         let mut buffer = [0u8; 32];
 
         loop {
@@ -372,8 +398,11 @@ fn launch_udp_streamer(to_client_udp_socket: UdpSocket,
         loop {
                 // Проверка атомарной переменной
                 if stop_streaming_flag.load(Ordering::Relaxed) == true {
-                    // Снимаем регистрацию
-                    quotes_generator.deregister_udp_streaming(to_client_udp_addr);
+                    // Снимаем регистрацию. Успешные логируютс внутри deregister
+                    if let Err(error) =  quotes_generator.deregister_udp_streaming(to_client_udp_addr) {
+                        log::error!("Ошибка снятия с подписки {}: {}", to_client_udp_addr, error);
+                    }
+
                     
                     log::warn!("Получен сигнал остановки для {}", to_client_udp_addr);
                     break;
