@@ -1,0 +1,30 @@
+actix-backend-practice/
+├─ Cargo.toml
+├─ .env
+├─ migrations/
+│  └─ 0001_init.sql
+└─ src/
+   ├─ presentation/ = HTTP, CORS, handlers, DTO
+   │  ├─ mod.rs
+   │  └─ routes.rs = /health, /register, /login
+   ├─ application/ = сценарии/оркестрация (use-cases)
+   │  └─ mod.rs      
+   ├─ domain/ - сущности/правила (чистая модель)
+   │  └─ mod.rs - пока минимально
+   ├─ data/ - доступ к данным (репозитории, SQLx)
+   │  ├─ mod.rs
+   │  └─ users_repo.rs = create/find по пользователю
+   ├─ infrastructure/ - техслой: безопасность, конфиг, миграции
+   │  ├─ mod.rs
+   │  ├─ config.rs =.env → Config
+   │  ├─ migrate.rs = sqlx::migrate!("./migrations")
+   │  └─ security.rs = Argon2, JWT
+   └─ main.rs = сборка проекта, HttpServer.  
+
+   Здесь:
+
+    presentation/ — тонкие хендлеры. В них парсим DTO → зовём use-case/репозиторий → отдаём JSON. Тут же можно добавить CORS/headers через main.rs.
+    application/ — сценарии (use-cases): «зарегистрировать», «войти», права, транзакции. На старт можно пустым и звать репозиторий прямо из handlers.
+    domain/ — чистые типы и правила (без SQL/HTTP). В простой практике можно отложить.
+    data/ — SQLx-репозитории и маппинг домена в строки/колонки.
+    infrastructure/ — конфиг .env, миграции sqlx, безопасность (Argon2/JWT).
